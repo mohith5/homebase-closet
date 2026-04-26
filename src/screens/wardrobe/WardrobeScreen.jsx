@@ -305,12 +305,13 @@ function UploadSheet({ profile, householdId, onClose, onItemsSaved }) {
     setSaving(true);
     Logger.info('Wardrobe', `Saving ${toSave.length} confirmed items`);
     try {
-      const inserts = toSave.map(({ _id, confirmed, _editing, ...item }) => ({
-        ...item,
-        photo_url: null, // No personal photo stored — category icon used instead
-        profile_id: profile.id,
-        household_id: householdId,
-      }));
+      // Only include columns that exist in the DB — strip internal/unknown fields
+      const ALLOWED = new Set(['name','category','color','colors','material','fit','brand','model','occasions','seasons','notes','barcode']);
+      const inserts = toSave.map(({ _id, confirmed, _editing, ...item }) => {
+        const clean = {};
+        for (const [k, v] of Object.entries(item)) { if (ALLOWED.has(k)) clean[k] = v; }
+        return { ...clean, photo_url: null, profile_id: profile.id, household_id: householdId };
+      });
       const { data, error } = await supabase.from('wardrobe_items').insert(inserts).select();
       if (error) throw error;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
