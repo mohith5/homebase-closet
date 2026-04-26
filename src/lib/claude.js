@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import Logger from './logger';
 
-const EDGE_FN_URL = 'https://wpzgcwvjzhzurmbirdsj.supabase.co/functions/v1/claude-ai';
+const EDGE_FN_URL = 'https://wpzgcwvjzhzurmbirdsj.supabase.co/functions/v1/closet-ai';
 
 /**
  * Call Claude via Supabase Edge Function.
