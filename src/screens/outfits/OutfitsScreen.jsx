@@ -227,7 +227,7 @@ export default function OutfitsScreen() {
   }
 
   async function handleWornPhoto() {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.75 });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.75});
     if (res.canceled) return;
     const uri = res.assets[0].uri;
     setWornUri(uri);

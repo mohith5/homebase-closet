@@ -101,7 +101,7 @@ function AddItemSheet({ profile, householdId, onClose, onSaved }) {
 
   async function pickPhotos() {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.75,
       allowsMultipleSelection: true, // multi-select
       selectionLimit: 10,

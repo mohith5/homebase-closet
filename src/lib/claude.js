@@ -64,8 +64,11 @@ export async function callClaude({ system, messages, max_tokens = 2048, model = 
       if (!res.ok) {
         const errText = await res.text();
         Logger.error('Claude', `HTTP ${res.status} attempt ${attempt + 1}`, errText);
-        if (attempt < retries && res.status >= 500) {
-          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 800));
+        // 503 = edge function cold start — wait longer and retry
+        if (attempt < retries && (res.status >= 500 || res.status === 503)) {
+          const delay = res.status === 503 ? 3000 + attempt * 1000 : Math.pow(2, attempt) * 800;
+          Logger.warn('Claude', `Retrying in ${delay}ms (cold start or server error)`);
+          await new Promise(r => setTimeout(r, delay));
           continue;
         }
         throw new Error(`Claude API error: ${res.status}`);
