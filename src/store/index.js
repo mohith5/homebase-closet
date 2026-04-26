@@ -1,15 +1,14 @@
 import { create } from 'zustand';
-import { MMKV } from 'react-native-mmkv';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Logger from '../lib/logger';
 
-// Fast local storage — persists active profile preference per device
-const storage = new MMKV({ id: 'closet-store' });
+const PROFILE_KEY = '@hbc_activeProfileId';
 
-function getSavedProfileId() {
-  try { return storage.getString('activeProfileId') || null; } catch { return null; }
+async function getSavedProfileId() {
+  try { return await AsyncStorage.getItem(PROFILE_KEY); } catch { return null; }
 }
-function saveProfileId(id) {
-  try { if (id) storage.set('activeProfileId', id); } catch {}
+async function saveProfileId(id) {
+  try { if (id) await AsyncStorage.setItem(PROFILE_KEY, id); } catch {}
 }
 
 export const useAppStore = create((set, get) => ({
@@ -25,21 +24,20 @@ export const useAppStore = create((set, get) => ({
   /* ── Profiles ── */
   profiles: [],
   activeProfileIndex: 0,
-  setProfiles: (profiles) => {
+  setProfiles: async (profiles) => {
     Logger.info('Store', 'setProfiles', { count: profiles.length });
-    // Restore this device's preferred profile
-    const savedId = getSavedProfileId();
+    const savedId = await getSavedProfileId();
     let idx = 0;
     if (savedId) {
       const found = profiles.findIndex(p => p.id === savedId);
       if (found >= 0) idx = found;
     }
-    Logger.info('Store', `Restoring profile index ${idx}`, { savedId });
+    Logger.info('Store', `Restoring profile index ${idx}`);
     set({ profiles, activeProfileIndex: idx });
   },
   setActiveProfileIndex: (i) => {
     const profile = get().profiles[i];
-    if (profile) saveProfileId(profile.id); // remember on this device
+    if (profile) saveProfileId(profile.id);
     Logger.info('Store', `Active profile → index ${i}`, { name: profile?.display_name });
     set({ activeProfileIndex: i });
   },

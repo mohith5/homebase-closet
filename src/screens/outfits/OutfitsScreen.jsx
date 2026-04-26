@@ -226,10 +226,10 @@ export default function OutfitsScreen() {
 
   useEffect(() => {
     if (!profile) return;
-    loadHistory();
-    loadSaved();
-    fetchUsage();
-    fetchWeatherAuto();
+    loadHistory();      // free — Supabase read
+    loadSaved();        // free — Supabase read
+    fetchUsage();       // free — Supabase read
+    fetchWeatherAuto(); // free — Open-Meteo, cached 30min, no AI cost
   }, [profile?.id]);
 
   async function fetchUsage() {
@@ -404,7 +404,7 @@ export default function OutfitsScreen() {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
             <Text style={s.headerTitle}>✨ Stylie</Text>
-            <Text style={s.headerSub}>{profile?.display_name} · AI-Powered · {usageCount}/100 calls used</Text>
+            <Text style={s.headerSub}>{profile?.display_name} · Stylie AI · {usageCount}/100 outfit calls this month</Text>
           </View>
           <TouchableOpacity onPress={() => setShowSaved(s => !s)} style={s.savedToggle}>
             <Text style={{ fontSize: 11, fontWeight: '700', color: showSaved ? Colors.accent2 : Colors.text3 }}>

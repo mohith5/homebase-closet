@@ -1,7 +1,6 @@
 import Logger from './logger';
-import { MMKV } from 'react-native-mmkv';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const storage = new MMKV({ id: 'weather-cache' });
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes — no API call if fresh
 
 const GEO_URL = 'https://geocoding-api.open-meteo.com/v1/search';
@@ -27,24 +26,24 @@ const SEVERE_CODES = new Set([82, 95, 96, 99]);
 const RAIN_CODES = new Set([51,53,55,61,63,65,80,81,82]);
 const SNOW_CODES = new Set([71,73,75]);
 
-function getCached(key) {
+async function getCached(key) {
   try {
-    const raw = storage.getString(key);
+    const raw = await AsyncStorage.getItem('@hbc_weather_' + key);
     if (!raw) return null;
     const { data, ts } = JSON.parse(raw);
-    if (Date.now() - ts > CACHE_TTL_MS) { storage.delete(key); return null; }
+    if (Date.now() - ts > CACHE_TTL_MS) { await AsyncStorage.removeItem('@hbc_weather_' + key); return null; }
     Logger.info('Weather', `Cache hit for ${key} (${Math.round((Date.now()-ts)/60000)}min old)`);
     return data;
   } catch { return null; }
 }
 
-function setCache(key, data) {
-  try { storage.set(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+async function setCache(key, data) {
+  try { await AsyncStorage.setItem('@hbc_weather_' + key, JSON.stringify({ data, ts: Date.now() })); } catch {}
 }
 
 export async function getWeatherByCity(city) {
   const cacheKey = `city_${city.toLowerCase().replace(/\s/g,'_')}`;
-  const cached = getCached(cacheKey);
+  const cached = await getCached(cacheKey);
   if (cached) return cached;
 
   Logger.info('Weather', 'Fetching weather for city', { city });
@@ -54,7 +53,7 @@ export async function getWeatherByCity(city) {
     const loc = geoData.results?.[0];
     if (!loc) { Logger.warn('Weather', 'City not found', { city }); return null; }
     const result = await fetchWeather(loc.latitude, loc.longitude, loc.name, loc.country);
-    setCache(cacheKey, result);
+    await setCache(cacheKey, result);
     return result;
   } catch (e) {
     Logger.error('Weather', 'getWeatherByCity failed', e);
@@ -64,13 +63,13 @@ export async function getWeatherByCity(city) {
 
 export async function getWeatherByCoords(lat, lon) {
   const cacheKey = `coords_${lat.toFixed(2)}_${lon.toFixed(2)}`;
-  const cached = getCached(cacheKey);
+  const cached = await getCached(cacheKey);
   if (cached) return cached;
 
   Logger.info('Weather', 'Fetching weather by coords', { lat, lon });
   try {
     const result = await fetchWeather(lat, lon, 'Your location', '');
-    setCache(cacheKey, result);
+    await setCache(cacheKey, result);
     return result;
   } catch (e) {
     Logger.error('Weather', 'getWeatherByCoords failed', e);
