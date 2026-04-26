@@ -20,10 +20,14 @@ const HAIR_LENGTHS= ['Bald/Very Short','Short','Medium','Long','Very Long'];
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { profiles, activeProfileIndex, setActiveProfileIndex, updateProfile, setSession, showToast } = useAppStore();
+  const { profiles, activeProfileIndex, setActiveProfileIndex, setProfiles, updateProfile, setSession, showToast, session, householdId } = useAppStore();
   const profile = profiles[activeProfileIndex];
   const [form, setForm] = useState(profile ? { ...profile } : {});
   const [saving, setSaving] = useState(false);
+  const [addingProfile, setAddingProfile] = useState(false);
+
+  // Sync form when switching profiles
+  React.useEffect(() => { if (profile) setForm({ ...profile }); }, [activeProfileIndex]);
 
   const toggle = (field, val) => setForm(f => {
     const a = f[field] || [];
@@ -43,6 +47,31 @@ export default function ProfileScreen() {
       Logger.info('Profile', 'Saved OK');
     }
     setSaving(false);
+  }
+
+  async function addSecondProfile() {
+    if (profiles.length >= 2) { showToast('Maximum 2 profiles per household'); return; }
+    setAddingProfile(true);
+    Logger.info('Profile', 'Adding second profile');
+    try {
+      const label = profiles[0]?.label === 'His' ? 'Hers' : 'His';
+      const { data, error } = await supabase.from('closet_profiles').insert({
+        label,
+        display_name: label === 'Hers' ? 'Her' : 'Him',
+        household_id: householdId,
+        user_id: session.user.id,
+      }).select().single();
+      if (error) throw error;
+      setProfiles([...profiles, data]);
+      setActiveProfileIndex(profiles.length);
+      setForm({ ...data });
+      showToast(`${label} profile added — fill in details and save`);
+      Logger.info('Profile', 'Second profile added', { id: data.id });
+    } catch (e) {
+      Logger.error('Profile', 'Add profile failed', e);
+      showToast('Could not add profile: ' + e.message);
+    }
+    setAddingProfile(false);
   }
 
   async function signOut() {
@@ -68,12 +97,11 @@ export default function ProfileScreen() {
       </LinearGradient>
 
       {/* Profile switcher */}
-      {profiles.length > 1 && (
-        <View style={styles.switcher}>
+      <View style={styles.switcher}>
           {profiles.map((p, i) => (
             <TouchableOpacity
               key={p.id}
-              onPress={() => { setActiveProfileIndex(i); setForm({ ...profiles[i] }); }}
+              onPress={() => setActiveProfileIndex(i)}
               style={[styles.switchBtn, i === activeProfileIndex && styles.switchBtnActive]}
             >
               <Text style={[styles.switchLabel, i === activeProfileIndex && styles.switchLabelActive]}>
@@ -81,8 +109,12 @@ export default function ProfileScreen() {
               </Text>
             </TouchableOpacity>
           ))}
+          {profiles.length < 2 && (
+            <TouchableOpacity onPress={addSecondProfile} disabled={addingProfile} style={styles.addProfileBtn}>
+              {addingProfile ? <ActivityIndicator color={Colors.accent2} size="small" /> : <Text style={styles.addProfileText}>+ Add Hers</Text>}
+            </TouchableOpacity>
+          )}
         </View>
-      )}
 
       <ScrollView contentContainerStyle={{ padding: Spacing.md, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
         <Field label="Display Name">
@@ -144,7 +176,9 @@ const styles = StyleSheet.create({
   header: { padding: Spacing.lg, paddingBottom: 12 },
   headerTitle: { fontSize: 22, fontWeight: '700', color: Colors.text },
   headerSub: { fontSize: 12, color: Colors.text2, marginTop: 2 },
-  switcher: { flexDirection: 'row', padding: 12, gap: 10, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  switcher: { flexDirection: 'row', padding: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  addProfileBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.accent2, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(29,78,216,0.08)' },
+  addProfileText: { fontSize: 12, fontWeight: '700', color: Colors.accent2 },
   switchBtn: { flex: 1, padding: 10, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', backgroundColor: Colors.bg3 },
   switchBtnActive: { borderColor: Colors.accent2, backgroundColor: 'rgba(29,78,216,0.15)' },
   switchLabel: { fontSize: 13, fontWeight: '600', color: Colors.text2 },

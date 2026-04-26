@@ -19,7 +19,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "HomeBase Closet uses your camera to photograph clothing items and scan barcodes.",
         "NSPhotoLibraryUsageDescription": "HomeBase Closet accesses your photos to add clothing items and worn-outfit photos.",
-        "NSPhotoLibraryAddUsageDescription": "HomeBase Closet saves outfit photos to your library."
+        "NSPhotoLibraryAddUsageDescription": "HomeBase Closet saves outfit photos to your library.",
+        "NSLocationWhenInUseUsageDescription": "HomeBase Closet uses your location to get local weather for outfit suggestions."
       }
     },
     "android": {
@@ -32,7 +33,9 @@
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ]
     },
     "web": {

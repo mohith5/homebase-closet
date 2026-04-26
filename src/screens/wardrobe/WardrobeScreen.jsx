@@ -18,12 +18,12 @@ import { Pill } from '../../components/Pill';
 import { Colors, Gradients, Spacing, Radius, Shadow } from '../../theme';
 import { useAppStore } from '../../store';
 
-const CATEGORIES = ['Tops','Bottoms','Dresses','Outerwear','Shoes','Accessories','Activewear','Swimwear','Loungewear'];
+const CATEGORIES = ['Tops','Bottoms','Dresses','Outerwear','Shoes','Jewelry','Watches','Bags','Hats','Belts','Sunglasses','Activewear','Swimwear','Loungewear'];
 const OCCASIONS  = ['Work/Office','Date Night','Weekend Casual','Formal/Event','Gym/Active','Travel','Beach','Party','Outdoor'];
 const SEASONS    = ['Spring','Summer','Fall','Winter'];
 const COLORS     = ['Black','White','Gray','Navy','Blue','Light Blue','Green','Olive','Khaki','Beige','Brown','Burgundy','Red','Pink','Purple','Yellow','Orange','Multicolor','Pattern'];
 const FITS       = ['Slim','Regular','Loose','Oversized','Tailored'];
-const CATEGORY_ICONS = { Tops:'👕', Bottoms:'👖', Dresses:'👗', Outerwear:'🧥', Shoes:'👟', Accessories:'👜', Activewear:'🏃', Swimwear:'🩱', Loungewear:'🩳' };
+const CATEGORY_ICONS = { Tops:'👕', Bottoms:'👖', Dresses:'👗', Outerwear:'🧥', Shoes:'👟', Jewelry:'💎', Watches:'⌚', Bags:'👜', Hats:'🧢', Belts:'🪢', Sunglasses:'🕶', Activewear:'🏃', Swimwear:'🩱', Loungewear:'🩳' };
 const W = Dimensions.get('window').width;
 const CARD = (W - 36) / 2;
 
