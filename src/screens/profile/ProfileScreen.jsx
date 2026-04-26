@@ -10,6 +10,7 @@ import Logger from '../../lib/logger';
 import { Pill } from '../../components/Pill';
 import { Colors, Gradients, Spacing, Radius } from '../../theme';
 import { useAppStore } from '../../store';
+import { HEADER_PADDING_TOP } from '../../lib/device';
 
 const BODY_TYPES  = ['Slim','Athletic','Average','Stocky','Tall-Slim','Broad Shoulders','Petite','Curvy','Plus Size'];
 const SKIN_TONES  = ['Fair','Light','Medium','Olive','Tan','Dark','Deep'];
@@ -93,7 +94,7 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.screen}>
-      <LinearGradient colors={Gradients.header} style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <LinearGradient colors={Gradients.header} style={[styles.header, { paddingTop: HEADER_PADDING_TOP }]}>
         <Text style={styles.headerTitle}>Profile</Text>
         <Text style={styles.headerSub}>Edit your style profile</Text>
       </LinearGradient>
@@ -141,7 +142,7 @@ export default function ProfileScreen() {
           <View style={styles.pills}>{HAIR_LENGTHS.map(h => <Pill key={h} label={h} active={form.hair_length === h} onPress={() => setForm(f => ({ ...f, hair_length: h }))} />)}</View>
         </Field>
         <Field label="How You Style Your Hair">
-          <Text style={styles.fieldHint}>JARVIS uses this to suggest realistic hairstyles you can actually do</Text>
+          <Text style={styles.fieldHint}>Stylie uses this to suggest realistic hairstyles you can actually do</Text>
           <View style={styles.pills}>{HAIR_METHODS.map(h => <Pill key={h} label={h} active={form.hair_styling_method === h} onPress={() => setForm(f => ({ ...f, hair_styling_method: h }))} />)}</View>
         </Field>
         <Field label="Hair Tools You Own">

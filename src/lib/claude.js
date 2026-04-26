@@ -101,40 +101,124 @@ export function parseClaudeJSON(text) {
   }
 }
 
-// Haiku — cheap, fast photo classification
+// Haiku — single item photo classification with brand detection
 export async function analyzeClothingPhoto(base64, mimeType = 'image/jpeg') {
   Logger.info('Claude', 'Analyzing clothing photo (Haiku)');
   const text = await callClaude({
     model: MODELS.fast,
-    system: 'You are a fashion expert. Analyze this clothing item photo. Return ONLY valid JSON: { "name": string, "category": one of [Tops,Bottoms,Dresses,Outerwear,Shoes,Jewelry,Watches,Bags,Hats,Belts,Sunglasses,Activewear,Swimwear,Loungewear], "color": string, "colors": string[], "material": string, "fit": string }',
+    system: `You are a fashion expert and brand identifier. Analyze this clothing/accessory item photo.
+RULES:
+- Only describe what is CLEARLY VISIBLE in the image
+- Look for brand logos, labels, text, distinctive design patterns to identify brand and model
+- Ignore the person's face, skin, background
+- Do NOT guess accessories that aren't visible
+Return ONLY valid JSON: { "name": string (include brand+model if identified e.g. "Nike Air Force 1"), "category": one of [Tops,Bottoms,Dresses,Outerwear,Shoes,Jewelry,Watches,Bags,Hats,Belts,Sunglasses,Activewear,Swimwear,Loungewear], "color": string, "colors": string[], "material": string, "fit": string, "brand": string (empty string if not identifiable), "model": string (empty string if not identifiable) }`,
     messages: [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-      { type: 'text', text: 'What clothing/accessory item is this? Return JSON only.' }
+      { type: 'text', text: 'What clothing/accessory item is this? Identify brand and model if visible. Return JSON only.' }
     ]}],
     max_tokens: 512,
   });
   return parseClaudeJSON(text);
 }
 
-// Haiku — splits a full outfit photo into individual items
+// Haiku — splits outfit photo into clearly visible items only, with brand detection
 export async function splitOutfitIntoItems(base64, mimeType = 'image/jpeg') {
   Logger.info('Claude', 'Splitting outfit into individual items (Haiku)');
   const text = await callClaude({
-    model: MODELS.fast,
-    system: 'You are a fashion expert. Analyze this photo of a person wearing an outfit. Identify EACH separate clothing item and accessory. Return ONLY valid JSON array: [{ "name": string, "category": string, "color": string, "material": string, "fit": string }]. Categories: Tops, Bottoms, Dresses, Outerwear, Shoes, Jewelry, Watches, Bags, Hats, Belts, Sunglasses, Activewear.',
+    model: MODELS.fast, // Haiku — cheap. Better prompt prevents hallucinations
+    system: `You are a fashion expert and brand identifier analyzing a photo of a person.
+
+CRITICAL RULES:
+- ONLY list items that are CLEARLY AND DEFINITIVELY VISIBLE in the photo
+- Do NOT invent or assume accessories (no sunglasses if none visible, no watch if wrist not shown)
+- Ignore the person's face, hair, skin
+- Look carefully for brand logos, text, labels on clothing/shoes to identify brands
+- For shoes: look for brand logos (Nike swoosh, ON Running logo, Adidas stripes, etc.)
+- For clothing: look for visible logos, labels, distinctive patterns
+- Minimum confidence: only include an item if you are 90%+ sure it is present
+
+Return ONLY a valid JSON array (no markdown):
+[{
+  "name": "descriptive name with brand+model if visible e.g. On Running Cloud 5",
+  "category": "one of: Tops|Bottoms|Dresses|Outerwear|Shoes|Jewelry|Watches|Bags|Hats|Belts|Sunglasses|Activewear|Swimwear|Loungewear",
+  "color": "primary color",
+  "material": "fabric if identifiable else empty string",
+  "fit": "slim/regular/loose/oversized or empty string",
+  "brand": "brand name if logo/label visible else empty string",
+  "model": "model name if identifiable else empty string"
+}]`,
     messages: [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-      { type: 'text', text: 'List every clothing item and accessory this person is wearing as separate JSON objects.' }
+      { type: 'text', text: 'List ONLY the clothing items and accessories that are clearly visible on this person. Be conservative — do not guess.' }
     ]}],
-    max_tokens: 1024,
+    max_tokens: 1500,
   });
   const parsed = parseClaudeJSON(text);
   return Array.isArray(parsed) ? parsed : parsed.items || [];
 }
 
-// Sonnet — Jarvis-level outfit generation with weather + trends + wardrobe
+// Sonnet — Couple outfit generation for date night occasions
+export async function generateCoupleOutfits({ hisProfile, herProfile, hisWardrobe, herWardrobe, occasion, location, weather }) {
+  Logger.info('Claude', 'Generating couple outfits', { occasion, his: hisProfile?.display_name, hers: herProfile?.display_name });
+
+  const formatWardrobe = (items, name) => items.length > 0
+    ? items.map(i => `  - ${i.name || i.category}: ${i.color} ${i.category}${i.brand ? ` (${i.brand})` : ''}${i.fit ? `, ${i.fit}` : ''}`).join('\n')
+    : `  (${name}'s wardrobe is empty — suggest conceptually)`;
+
+  const weatherContext = weather ? `WEATHER: ${weather.summary}\n${weather.dressingAdvice}` : 'Weather: mild';
+
+  const systemText = `You are Stylie — an elite couples stylist. Generate 3 coordinated couple outfit combinations for ${hisProfile?.display_name || 'Him'} & ${herProfile?.display_name || 'Her'} going out together.
+
+OCCASION: ${occasion}${location ? ` at ${location}` : ''}
+${weatherContext}
+
+HIS PROFILE: Body: ${hisProfile?.body_type}, Skin: ${hisProfile?.skin_tone}, Style: ${(hisProfile?.style_vibe||[]).join(', ')}
+HIS WARDROBE:
+${formatWardrobe(hisWardrobe, hisProfile?.display_name || 'His')}
+
+HER PROFILE: Body: ${herProfile?.body_type}, Skin: ${herProfile?.skin_tone}, Style: ${(herProfile?.style_vibe||[]).join(', ')}
+HER WARDROBE:
+${formatWardrobe(herWardrobe, herProfile?.display_name || 'Her')}
+
+COUPLE STYLING RULES:
+- Outfits must COMPLEMENT each other (coordinated colors, matching vibe, same formality level)
+- Do NOT make them match exactly (that looks tacky) — complement, not clone
+- Consider how they look standing together as a couple
+- Apply color harmony between both outfits
+- Match energy: if he's smart casual, she shouldn't be in a ball gown
+- Return ONLY valid JSON
+
+JSON format:
+{
+  "couple_outfits": [
+    {
+      "name": "Couple look name",
+      "vibe": "e.g. Coordinated Elegance",
+      "his": { "items": [], "description": "", "styling_tip": "" },
+      "her": { "items": [], "description": "", "styling_tip": "" },
+      "why_together": "Why these two outfits work as a couple look",
+      "color_story": "How the colors interact between both outfits",
+      "confidence": 8
+    }
+  ],
+  "his_hair": { "suggestion": "", "how_to": "", "time_needed": "" },
+  "her_hair": { "suggestion": "", "how_to": "", "time_needed": "" },
+  "couple_tip": "One golden tip for looking great together"
+}`;
+
+  const text = await callClaude({
+    model: MODELS.smart,
+    system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
+    messages: [{ role: 'user', content: `Generate 3 coordinated couple outfit options for: ${occasion}` }],
+    max_tokens: 4000,
+  });
+  return parseClaudeJSON(text);
+}
+
+// Sonnet — Stylie-level outfit generation with weather + trends + wardrobe
 export async function generateOutfits({ profile, wardrobeItems, occasion, location, weather, previousOutfitIds = [] }, extraSuggestions = false) {
-  Logger.info('Claude', 'Generating Jarvis outfits', {
+  Logger.info('Claude', 'Generating Stylie outfits', {
     occasion,
     wardrobeCount: wardrobeItems.length,
     hasWeather: !!weather,
@@ -154,7 +238,7 @@ export async function generateOutfits({ profile, wardrobeItems, occasion, locati
   const currentMonth = new Date().toLocaleString('en-US', { month: 'long' });
   const currentSeason = getSeason();
 
-  const system = `You are JARVIS — an elite personal AI stylist with the knowledge of a Vogue editor, a personal shopper, and a fashion psychologist combined.
+  const system = `You are Stylie — — an elite personal AI stylist with the knowledge of a Vogue editor, a personal shopper, and a fashion psychologist combined.
 
 YOUR JOB: Generate ${extraSuggestions ? '3 fresh alternative' : '3 perfect'} outfit suggestions from this person's wardrobe that account for EVERYTHING — weather, occasion, body type, skin tone, color theory, current trends, and personal style.
 
@@ -169,6 +253,8 @@ Hair tools available: ${(profile.hair_styling_tools || []).join(', ') || 'not sp
 
 ━━ WEATHER INTELLIGENCE ━━
 ${weatherContext}
+${weather?.alerts?.length ? `WEATHER ALERTS: ${weather.alerts.map(a=>`[${a.level.toUpperCase()}] ${a.message}`).join(' | ')}` : ''}
+${location && /hike|trail|mountain|rainier|outdoor|park|camp/i.test(location) ? `OUTDOOR ACTIVITY DETECTED: "${location}" — prioritize weather protection, layers, and activity-appropriate footwear. Mention trail conditions if weather is severe.` : ''}
 
 ━━ CURRENT TRENDS (${currentSeason} ${new Date().getFullYear()}) ━━
 - Season: ${currentSeason}, Month: ${currentMonth}
@@ -218,10 +304,20 @@ ${wardrobeText}
   "shopping_gap": "One item missing from wardrobe that would elevate these looks"
 }`;
 
+  // Send system as array with cache_control on the static block
+  // The profile + wardrobe block is cached for 5 min — same content = cache hit = ~90% cost reduction
+  const systemBlocks = [
+    {
+      type: 'text',
+      text: system,
+      cache_control: { type: 'ephemeral' }, // cache this expensive context
+    }
+  ];
+
   const text = await callClaude({
     model: MODELS.smart,
-    system,
-    messages: [{ role: 'user', content: `Generate ${extraSuggestions ? '3 fresh alternative' : '3 perfect'} outfits for: ${occasion}${location ? `, at/in ${location}` : ''}. Be specific and use items from my wardrobe.` }],
+    system: systemBlocks,
+    messages: [{ role: 'user', content: `Generate ${extraSuggestions ? '3 fresh alternative' : '3 perfect'} outfits for: ${occasion}${location ? `, at/in ${location}` : ''}${weather ? `. Weather: ${weather.summary}` : ''}. Be specific and use items from my wardrobe.` }],
     max_tokens: 3500,
   });
 

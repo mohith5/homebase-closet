@@ -11,12 +11,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
 import Logger from '../../lib/logger';
-import { generateOutfits, splitOutfitIntoItems } from '../../lib/claude';
+import { generateOutfits, generateCoupleOutfits, splitOutfitIntoItems } from '../../lib/claude';
 import { getWeatherByCoords, getWeatherByCity } from '../../lib/weather';
 import { imageToBase64, uploadPhoto, getSignedUrl } from '../../lib/storage';
 import { Pill } from '../../components/Pill';
 import { Colors, Gradients, Spacing, Radius, Shadow } from '../../theme';
 import { useAppStore } from '../../store';
+import { HEADER_PADDING_TOP } from '../../lib/device';
 
 const OCCASIONS = ['Work/Office','Date Night','Weekend Casual','Formal/Event','Gym/Active','Travel','Beach','Party','Outdoor'];
 const W = Dimensions.get('window').width;
@@ -123,8 +124,19 @@ function WeatherWidget({ weather, onRefresh, loading }) {
     </View>
   );
   if (!weather) return null;
+
+  const dangerAlerts = (weather.alerts || []).filter(a => a.level === 'danger');
+  const warningAlerts = (weather.alerts || []).filter(a => a.level === 'warning');
+
   return (
     <View style={ww.card}>
+      {/* Danger alerts — shown prominently */}
+      {dangerAlerts.map((a, i) => (
+        <View key={i} style={ww.dangerAlert}>
+          <Text style={ww.dangerText}>{a.message}</Text>
+        </View>
+      ))}
+
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View>
           <Text style={ww.emoji}>{weather.emoji}</Text>
@@ -136,12 +148,33 @@ function WeatherWidget({ weather, onRefresh, loading }) {
           <Text style={ww.detail}>Feels {weather.feelsLike}°F</Text>
           <Text style={ww.detail}>H:{weather.high}° L:{weather.low}°</Text>
           <Text style={ww.detail}>{weather.rainChance}% rain</Text>
-          <Text style={ww.detail}>💨 {weather.wind}mph</Text>
+          <Text style={ww.detail}>💨 {weather.wind}mph {weather.windGusts > 30 ? `(gusts ${weather.windGusts})` : ''}</Text>
         </View>
       </View>
+
+      {/* Warning alerts */}
+      {warningAlerts.map((a, i) => (
+        <Text key={i} style={ww.warningText}>{a.message}</Text>
+      ))}
+
       <Text style={ww.advice}>{weather.dressingAdvice}</Text>
+
+      {/* 2-day forecast */}
+      {weather.forecast?.length > 0 && (
+        <View style={ww.forecastRow}>
+          {weather.forecast.map((f, i) => (
+            <View key={i} style={ww.forecastDay}>
+              <Text style={ww.forecastLabel}>{i === 0 ? 'Tomorrow' : 'Day 3'}</Text>
+              <Text style={{ fontSize: 16 }}>{f.emoji}</Text>
+              <Text style={ww.forecastTemp}>H:{f.high}° L:{f.low}°</Text>
+              <Text style={ww.forecastRain}>{f.rainChance}% 🌧</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       <TouchableOpacity onPress={onRefresh} style={ww.refresh}>
-        <Text style={ww.refreshText}>↺ Refresh</Text>
+        <Text style={ww.refreshText}>↺ Refresh weather</Text>
       </TouchableOpacity>
     </View>
   );
@@ -156,8 +189,16 @@ const ww = StyleSheet.create({
   detail: { fontSize: 12, color: Colors.text2 },
   advice: { fontSize: 12, color: Colors.accent2, lineHeight: 18, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.border },
   loading: { color: Colors.text2, fontSize: 13, marginLeft: 8 },
-  refresh: { alignSelf: 'flex-end' },
+  refresh: { alignSelf: 'flex-end', paddingTop: 6 },
   refreshText: { fontSize: 12, color: Colors.text3 },
+  dangerAlert: { backgroundColor: Colors.error + '18', borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.error + '40', padding: 8, marginBottom: 8 },
+  dangerText: { color: Colors.error, fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  warningText: { color: Colors.warning, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  forecastRow: { flexDirection: 'row', gap: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.border, marginTop: 4 },
+  forecastDay: { flex: 1, alignItems: 'center', gap: 2 },
+  forecastLabel: { fontSize: 10, color: Colors.text3, fontWeight: '600' },
+  forecastTemp: { fontSize: 11, color: Colors.text2 },
+  forecastRain: { fontSize: 10, color: Colors.text3 },
 });
 
 // ── Main Screen ───────────────────────────────────────────────
@@ -173,12 +214,15 @@ export default function OutfitsScreen() {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState(null);
+  const [coupleMode, setCoupleMode] = useState(false);
   const [savedIds, setSavedIds] = useState(new Set());
   const [wornUri, setWornUri] = useState(null);
   const [analyzingWorn, setAnalyzingWorn] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const [savedOutfits, setSavedOutfits] = useState([]);
   const [usageCount, setUsageCount] = useState(0);
+  const { profiles } = useAppStore();
+  const otherProfile = profiles.find(p => p.id !== profile?.id);
 
   useEffect(() => {
     if (!profile) return;
@@ -261,7 +305,7 @@ export default function OutfitsScreen() {
     setGenerating(true);
     if (!isMore) setResult(null);
 
-    // Always fetch fresh wardrobe from DB so nothing is missed
+    // Always fetch fresh wardrobe from DB
     let freshWardrobe = wardrobe;
     try {
       const { data: fresh } = await supabase
@@ -270,22 +314,41 @@ export default function OutfitsScreen() {
         .order('category');
       if (fresh && fresh.length > 0) {
         freshWardrobe = fresh;
-        setWardrobe(fresh); // sync store
-        Logger.info('Outfits', `Fresh wardrobe loaded: ${fresh.length} items`, fresh.map(i => `${i.brand || ''} ${i.name || i.category}`).join(', '));
+        setWardrobe(fresh);
+        Logger.info('Outfits', `Fresh wardrobe: ${fresh.length} items`, fresh.map(i => `${i.brand||''} ${i.name||i.category}`).join(', '));
       }
-    } catch (e) { Logger.warn('Outfits', 'Fresh wardrobe load failed, using cached', e); }
+    } catch (e) { Logger.warn('Outfits', 'Fresh wardrobe load failed', e); }
 
-    Logger.info('Outfits', isMore ? 'Getting more suggestions' : 'Generating outfits', { occasion: occ, wardrobeCount: freshWardrobe.length });
+    Logger.info('Outfits', isMore ? 'Getting more' : 'Generating', { occ, couple: coupleMode, wardrobeCount: freshWardrobe.length });
 
     try {
-      const data = await generateOutfits({
-        profile,
-        wardrobeItems: freshWardrobe,
-        occasion: occ,
-        location: weather?.city,
-        weather,
-        previousOutfitIds: isMore ? (result?.outfits?.map((_, i) => i) || []) : [],
-      }, isMore);
+      let data;
+      if (coupleMode && otherProfile && !isMore) {
+        // Fetch partner's wardrobe too
+        const { data: partnerWardrobe } = await supabase
+          .from('wardrobe_items').select('*')
+          .eq('profile_id', otherProfile.id).order('category');
+
+        const isHis = profile.label === 'His';
+        data = await generateCoupleOutfits({
+          hisProfile: isHis ? profile : otherProfile,
+          herProfile: isHis ? otherProfile : profile,
+          hisWardrobe: isHis ? freshWardrobe : (partnerWardrobe || []),
+          herWardrobe: isHis ? (partnerWardrobe || []) : freshWardrobe,
+          occasion: occ, location: weather?.city, weather,
+        });
+        data._isCouple = true;
+        Logger.info('Outfits', 'Couple outfits generated', { count: data.couple_outfits?.length });
+      } else {
+        data = await generateOutfits({
+          profile,
+          wardrobeItems: freshWardrobe,
+          occasion: occ,
+          location: weather?.city,
+          weather,
+          previousOutfitIds: isMore ? (result?.outfits?.map((_, i) => i) || []) : [],
+        }, isMore);
+      }
 
       Logger.info('Outfits', 'Generation done', { outfits: data.outfits?.length });
       setResult(data);
@@ -337,10 +400,10 @@ export default function OutfitsScreen() {
 
   return (
     <View style={s.screen}>
-      <LinearGradient colors={Gradients.header} style={[s.header, { paddingTop: insets.top + 12 }]}>
+      <LinearGradient colors={Gradients.header} style={[s.header, { paddingTop: HEADER_PADDING_TOP }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
-            <Text style={s.headerTitle}>✨ JARVIS Stylist</Text>
+            <Text style={s.headerTitle}>✨ Stylie</Text>
             <Text style={s.headerSub}>{profile?.display_name} · AI-Powered · {usageCount}/100 calls used</Text>
           </View>
           <TouchableOpacity onPress={() => setShowSaved(s => !s)} style={s.savedToggle}>
@@ -392,7 +455,7 @@ export default function OutfitsScreen() {
             {/* ── Worn photo ── */}
             <View style={s.wornCard}>
               <Text style={s.sectionLabel}>📸 Upload Worn Outfit Photo</Text>
-              <Text style={s.wornSub}>Each item (tee, pants, shoes, watch) gets saved separately so JARVIS can mix & match them.</Text>
+              <Text style={s.wornSub}>Each item (tee, pants, shoes, watch) gets saved separately so Stylie can mix & match them.</Text>
               <TouchableOpacity onPress={handleWornPhoto} disabled={analyzingWorn} style={s.wornBtn}>
                 {wornUri && <Image source={{ uri: wornUri }} style={s.wornThumb} />}
                 {analyzingWorn
@@ -408,12 +471,31 @@ export default function OutfitsScreen() {
               {OCCASIONS.map(o => <Pill key={o} label={o} active={occasion === o} onPress={() => { setOccasion(o); setCustomOcc(''); }} />)}
             </View>
             <TextInput
-              style={[s.input, { marginTop: 10, marginBottom: 20 }]}
+              style={[s.input, { marginTop: 10, marginBottom: 12 }]}
               value={customOcc}
               onChangeText={v => { setCustomOcc(v); setOccasion(''); }}
               placeholder="Or describe your occasion..."
               placeholderTextColor={Colors.text3}
             />
+
+            {/* ── Couple mode — show if 2 profiles exist ── */}
+            {otherProfile && (
+              <TouchableOpacity
+                onPress={() => setCoupleMode(m => !m)}
+                style={[s.coupleToggle, coupleMode && s.coupleToggleActive]}
+              >
+                <Text style={{ fontSize: 18 }}>👫</Text>
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={[s.coupleToggleTitle, coupleMode && { color: Colors.accent2 }]}>
+                    Couple Outfits {coupleMode ? '(ON)' : '(OFF)'}
+                  </Text>
+                  <Text style={s.coupleToggleSub}>
+                    Coordinated looks for {profile?.display_name} & {otherProfile?.display_name} going together
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 16 }}>{coupleMode ? '✓' : '○'}</Text>
+              </TouchableOpacity>
+            )}
 
             {/* ── Generate ── */}
             <TouchableOpacity onPress={() => generate(false)} disabled={generating || !occ} activeOpacity={0.85}>
@@ -423,8 +505,8 @@ export default function OutfitsScreen() {
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               >
                 {generating && !result
-                  ? <><ActivityIndicator color="#fff" /><Text style={s.genBtnText}>  JARVIS is styling you...</Text></>
-                  : <Text style={s.genBtnText}>✨  Ask JARVIS for Outfits</Text>
+                  ? <><ActivityIndicator color="#fff" /><Text style={s.genBtnText}>  Stylie is styling you...</Text></>
+                  : <Text style={s.genBtnText}>✨  Ask Stylie for Outfits</Text>
                 }
               </LinearGradient>
             </TouchableOpacity>
@@ -432,8 +514,47 @@ export default function OutfitsScreen() {
             {/* ── Results ── */}
             {result && (
               <View style={{ marginTop: 24 }}>
+                {/* ── Couple results ── */}
+                {result._isCouple && (result.couple_outfits || []).map((co, i) => (
+                  <View key={i} style={s.coupleCard}>
+                    <Text style={s.coupleCardBadge}>Option {i+1}</Text>
+                    <Text style={s.coupleCardName}>{co.name}</Text>
+                    <Text style={s.coupleCardVibe}>"{co.vibe}"</Text>
+                    <View style={s.coupleRow}>
+                      <View style={s.coupleHalf}>
+                        <Text style={s.coupleWho}>👔 {profiles.find(p=>p.label==='His')?.display_name||'His'}</Text>
+                        <Text style={s.coupleDesc}>{co.his?.description}</Text>
+                        {(co.his?.items||[]).map((item,j)=><Text key={j} style={s.coupleItem}>• {item}</Text>)}
+                        {co.his?.styling_tip && <Text style={s.coupleTip}>💡 {co.his.styling_tip}</Text>}
+                      </View>
+                      <View style={s.coupleDivider}/>
+                      <View style={s.coupleHalf}>
+                        <Text style={s.coupleWho}>👗 {profiles.find(p=>p.label==='Hers')?.display_name||'Hers'}</Text>
+                        <Text style={s.coupleDesc}>{co.her?.description}</Text>
+                        {(co.her?.items||[]).map((item,j)=><Text key={j} style={s.coupleItem}>• {item}</Text>)}
+                        {co.her?.styling_tip && <Text style={s.coupleTip}>💡 {co.her.styling_tip}</Text>}
+                      </View>
+                    </View>
+                    {co.why_together && <Text style={s.coupleWhy}>👫 {co.why_together}</Text>}
+                    {co.color_story && <Text style={s.coupleColorStory}>🎨 {co.color_story}</Text>}
+                  </View>
+                ))}
+                {result._isCouple && result.couple_tip && (
+                  <View style={[s.tipCard, { borderColor: Colors.success+'30', backgroundColor: Colors.success+'08' }]}>
+                    <Text style={{ color:Colors.success, fontSize:11, fontWeight:'700', marginBottom:4 }}>👫 COUPLE TIP</Text>
+                    <Text style={s.tipText}>{result.couple_tip}</Text>
+                  </View>
+                )}
+                {result._isCouple && (result.his_hair || result.her_hair) && (
+                  <View style={s.hairCard}>
+                    <Text style={s.hairLabel}>💇 Hair Suggestions</Text>
+                    {result.his_hair?.suggestion && <Text style={[s.hairSuggestion,{fontSize:14}]}>👔 {result.his_hair.suggestion} {result.his_hair.time_needed ? `(${result.his_hair.time_needed})`:''}</Text>}
+                    {result.her_hair?.suggestion && <Text style={[s.hairSuggestion,{fontSize:14}]}>👗 {result.her_hair.suggestion} {result.her_hair.time_needed ? `(${result.her_hair.time_needed})`:''}</Text>}
+                  </View>
+                )}
+
                 {/* Context notes */}
-                {(result.weather_note || result.trend_note) && (
+                {!result._isCouple && (result.weather_note || result.trend_note) && (
                   <View style={s.contextCard}>
                     {result.weather_note && <Text style={s.contextText}>🌡 {result.weather_note}</Text>}
                     {result.trend_note && <Text style={s.contextText}>🔥 {result.trend_note}</Text>}
@@ -520,6 +641,23 @@ const s = StyleSheet.create({
   headerSub: { fontSize: 11, color: Colors.text2, marginTop: 3 },
   savedToggle: { padding: 8, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.bg3 },
   sectionLabel: { fontSize: 11, fontWeight: '700', color: Colors.text2, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
+  coupleToggle: { flexDirection:'row', alignItems:'center', padding:14, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, backgroundColor:Colors.bg3, marginBottom:20 },
+  coupleToggleActive: { borderColor:Colors.accent2, backgroundColor:'rgba(29,78,216,0.1)' },
+  coupleToggleTitle: { fontSize:13, fontWeight:'700', color:Colors.text },
+  coupleToggleSub: { fontSize:11, color:Colors.text3, marginTop:2 },
+  coupleCard: { backgroundColor:Colors.card, borderRadius:Radius.lg, borderWidth:1, borderColor:'rgba(124,58,237,0.3)', padding:Spacing.md, marginBottom:16 },
+  coupleCardBadge: { fontSize:10, fontWeight:'700', color:'#a78bfa', textTransform:'uppercase', letterSpacing:1, marginBottom:4 },
+  coupleCardName: { fontSize:17, fontWeight:'700', color:Colors.text, marginBottom:2 },
+  coupleCardVibe: { fontSize:12, color:Colors.text2, fontStyle:'italic', marginBottom:12 },
+  coupleRow: { flexDirection:'row', gap:12, marginBottom:12 },
+  coupleHalf: { flex:1 },
+  coupleDivider: { width:1, backgroundColor:Colors.border },
+  coupleWho: { fontSize:13, fontWeight:'700', color:Colors.accent2, marginBottom:6 },
+  coupleDesc: { fontSize:12, color:Colors.text2, lineHeight:17, marginBottom:6 },
+  coupleItem: { fontSize:12, color:Colors.text, marginBottom:2 },
+  coupleTip: { fontSize:11, color:Colors.warning, marginTop:6, lineHeight:16 },
+  coupleWhy: { fontSize:12, color:Colors.text2, lineHeight:18, paddingTop:10, borderTopWidth:1, borderTopColor:Colors.border, marginBottom:4 },
+  coupleColorStory: { fontSize:11, color:Colors.text3, lineHeight:16 },
   input: { backgroundColor: Colors.inpBg, borderWidth: 1, borderColor: Colors.inpBorder, borderRadius: Radius.md, padding: 12, fontSize: 14, color: Colors.text },
   cityBtn: { padding: 12, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.accent2, justifyContent: 'center' },
   wornCard: { backgroundColor: Colors.bg3, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: Spacing.md, marginBottom: 20 },

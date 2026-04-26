@@ -17,6 +17,7 @@ import { uploadPhoto, imageToBase64 } from '../../lib/storage';
 import { Pill } from '../../components/Pill';
 import { Colors, Gradients, Spacing, Radius, Shadow } from '../../theme';
 import { useAppStore } from '../../store';
+import { HEADER_PADDING_TOP } from '../../lib/device';
 
 const CATEGORIES = ['Tops','Bottoms','Dresses','Outerwear','Shoes','Jewelry','Watches','Bags','Hats','Belts','Sunglasses','Activewear','Swimwear','Loungewear'];
 const OCCASIONS  = ['Work/Office','Date Night','Weekend Casual','Formal/Event','Gym/Active','Travel','Beach','Party','Outdoor'];
@@ -43,9 +44,17 @@ function emptyForm(defaults = {}) {
 function ItemModal({ profile, householdId, existingItem, onClose, onSaved }) {
   const isEdit = !!existingItem;
   const [form, setForm] = useState(emptyForm(existingItem || {}));
+  const [photoUri, setPhotoUri] = useState(existingItem?.photo_url || null);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+
+  async function pickProductPhoto() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'], quality: 0.8, allowsEditing: true, aspect: [3, 4],
+    });
+    if (!result.canceled) setPhotoUri(result.assets[0].uri);
+  }
 
   const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
   const toggle = useCallback((k, v) => setForm(f => {
@@ -72,13 +81,23 @@ function ItemModal({ profile, householdId, existingItem, onClose, onSaved }) {
   async function save() {
     setSaving(true);
     try {
+      // Upload product photo if a new local URI was picked
+      let photo_url = form.photo_url || null;
+      if (photoUri && photoUri.startsWith('file://')) {
+        const ext = photoUri.split('.').pop() || 'jpg';
+        const path = `${profile.id}/items/${Date.now()}.${ext}`;
+        photo_url = await uploadPhoto(photoUri, path);
+        Logger.info('Wardrobe', 'Product photo uploaded', { path: photo_url });
+      }
+
+      const payload = { ...form, photo_url };
       if (isEdit) {
-        const { error } = await supabase.from('wardrobe_items').update(form).eq('id', existingItem.id);
+        const { error } = await supabase.from('wardrobe_items').update(payload).eq('id', existingItem.id);
         if (error) throw error;
-        onSaved({ ...existingItem, ...form });
+        onSaved({ ...existingItem, ...payload });
       } else {
         const { data, error } = await supabase.from('wardrobe_items')
-          .insert({ ...form, profile_id: profile.id, household_id: householdId })
+          .insert({ ...payload, profile_id: profile.id, household_id: householdId })
           .select().single();
         if (error) throw error;
         onSaved(data);
@@ -112,11 +131,21 @@ function ItemModal({ profile, householdId, existingItem, onClose, onSaved }) {
       <View style={m.handle} />
       <Text style={m.title}>{isEdit ? 'Edit Item' : 'Add Item'}</Text>
 
-      {/* Category icon display — no personal photo */}
-      <View style={m.iconDisplay}>
-        <Text style={m.iconEmoji}>{CATEGORY_ICONS[form.category] || '👕'}</Text>
-        <Text style={m.iconLabel}>{form.category}</Text>
-      </View>
+      {/* Product photo — tap to add/change */}
+      <TouchableOpacity onPress={pickProductPhoto} style={m.iconDisplay} activeOpacity={0.8}>
+        {photoUri
+          ? <Image source={{ uri: photoUri }} style={m.productPhoto} resizeMode="cover" />
+          : <>
+              <Text style={m.iconEmoji}>{CATEGORY_ICONS[form.category] || '👕'}</Text>
+              <Text style={m.iconLabel}>{form.category}</Text>
+            </>
+        }
+        <View style={m.photoOverlay}>
+          <Text style={{ color:'#fff', fontSize:11, fontWeight:'600' }}>
+            {photoUri ? '📷 Change Photo' : '📷 Add Product Photo'}
+          </Text>
+        </View>
+      </TouchableOpacity>
 
       {/* Barcode only for new items */}
       {!isEdit && (
@@ -191,9 +220,11 @@ function ItemModal({ profile, householdId, existingItem, onClose, onSaved }) {
 const m = StyleSheet.create({
   handle: { width:36, height:4, backgroundColor:Colors.border, borderRadius:2, alignSelf:'center', marginBottom:16 },
   title: { fontSize:20, fontWeight:'700', color:Colors.text, marginBottom:20 },
-  iconDisplay: { alignItems:'center', padding:20, backgroundColor:Colors.bg3, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, marginBottom:16 },
+  iconDisplay: { alignItems:'center', justifyContent:'center', height:160, backgroundColor:Colors.bg3, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, marginBottom:16, overflow:'hidden', position:'relative' },
+  productPhoto: { width:'100%', height:'100%' },
   iconEmoji: { fontSize:48 },
   iconLabel: { fontSize:13, color:Colors.text2, marginTop:6, fontWeight:'600' },
+  photoOverlay: { position:'absolute', bottom:0, left:0, right:0, backgroundColor:'rgba(0,0,0,0.55)', padding:6, alignItems:'center' },
   barcodeBtn: { flexDirection:'row', alignItems:'center', padding:12, backgroundColor:Colors.bg3, borderRadius:Radius.md, borderWidth:1, borderColor:Colors.border, marginBottom:20 },
   label: { fontSize:12, fontWeight:'600', color:Colors.text2, textTransform:'uppercase', letterSpacing:0.5, marginBottom:8, marginTop:16 },
   pills: { flexDirection:'row', flexWrap:'wrap', marginHorizontal:-3 },
@@ -297,7 +328,7 @@ function UploadSheet({ profile, householdId, onClose, onItemsSaved }) {
       showsVerticalScrollIndicator={false}>
       <View style={u.handle} />
       <Text style={u.title}>Upload & Auto-Detect Items</Text>
-      <Text style={u.sub}>Upload outfit photos — JARVIS detects and separates every item automatically. Your personal photos are never stored.</Text>
+      <Text style={u.sub}>Upload outfit photos — Stylie detects and separates every item automatically. Your personal photos are never stored.</Text>
 
       <TouchableOpacity onPress={pickAndAnalyze} disabled={processing} style={u.uploadBtn} activeOpacity={0.85}>
         <LinearGradient colors={['#1d4ed8','#7c3aed']} style={u.uploadBtnGrad} start={{x:0,y:0}} end={{x:1,y:0}}>
@@ -311,7 +342,7 @@ function UploadSheet({ profile, householdId, onClose, onItemsSaved }) {
       {processing && (
         <View style={u.progressCard}>
           <ActivityIndicator color={Colors.accent2} />
-          <Text style={u.progressText}>JARVIS is scanning all photos simultaneously and detecting each item...</Text>
+          <Text style={u.progressText}>Stylie is scanning all photos simultaneously and detecting each item...</Text>
         </View>
       )}
 
@@ -525,7 +556,7 @@ export default function WardrobeScreen() {
 
   return (
     <View style={ws.screen}>
-      <LinearGradient colors={Gradients.header} style={[ws.header, { paddingTop: insets.top + 12 }]}>
+      <LinearGradient colors={Gradients.header} style={[ws.header, { paddingTop: HEADER_PADDING_TOP }]}>
         <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start' }}>
           <View>
             <Text style={ws.headerTitle}>Wardrobe</Text>
