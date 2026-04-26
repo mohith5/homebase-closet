@@ -94,7 +94,7 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.screen}>
-      <LinearGradient colors={Gradients.header} style={[styles.header, { paddingTop: HEADER_PADDING_TOP }]}>
+      <LinearGradient colors={Gradients.header} style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Text style={styles.headerTitle}>Profile</Text>
         <Text style={styles.headerSub}>Edit your style profile</Text>
       </LinearGradient>
@@ -108,7 +108,7 @@ export default function ProfileScreen() {
               style={[styles.switchBtn, i === activeProfileIndex && styles.switchBtnActive]}
             >
               <Text style={[styles.switchLabel, i === activeProfileIndex && styles.switchLabelActive]}>
-                {i === 0 ? '👔' : '👗'} {p.display_name || p.label}
+                {p.label === 'Hers' ? '👗' : '👔'} {p.display_name || p.label}
               </Text>
             </TouchableOpacity>
           ))}

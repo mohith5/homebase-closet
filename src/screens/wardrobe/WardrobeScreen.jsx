@@ -480,8 +480,21 @@ export default function WardrobeScreen() {
       .from('wardrobe_items').select('*')
       .eq('profile_id', profile.id)
       .order('created_at', { ascending: false });
-    if (error) Logger.error('Wardrobe', 'Load failed', error);
-    else setWardrobe(data || []);
+    if (error) { Logger.error('Wardrobe', 'Load failed', error); }
+    else {
+      // Generate signed URLs for all items that have a storage path
+      const withUrls = await Promise.all((data || []).map(async item => {
+        if (!item.photo_url) return item;
+        // Already a full URL (http) — use as-is
+        if (item.photo_url.startsWith('http')) return item;
+        // Storage path — get signed URL
+        const { data: signed } = await supabase.storage
+          .from('closet')
+          .createSignedUrl(item.photo_url, 3600);
+        return { ...item, photo_url: signed?.signedUrl || null };
+      }));
+      setWardrobe(withUrls);
+    }
     done();
     setLoading(false);
   }
@@ -499,12 +512,18 @@ export default function WardrobeScreen() {
     ]);
   }
 
-  function handleItemSaved(updated) {
-    // Update in store without full reload
+  async function handleItemSaved(updated) {
+    // Resolve signed URL for the saved item's photo
+    let itemWithUrl = updated;
+    if (updated.photo_url && !updated.photo_url.startsWith('http')) {
+      const { data: signed } = await supabase.storage
+        .from('closet').createSignedUrl(updated.photo_url, 3600);
+      itemWithUrl = { ...updated, photo_url: signed?.signedUrl || null };
+    }
     if (editingItem) {
-      setWardrobe(wardrobe.map(i => i.id === updated.id ? updated : i));
+      setWardrobe(wardrobe.map(i => i.id === itemWithUrl.id ? itemWithUrl : i));
     } else {
-      addWardrobeItem(updated);
+      addWardrobeItem(itemWithUrl);
     }
     showToast(editingItem ? 'Item updated' : 'Item added');
     setEditingItem(null);
@@ -557,7 +576,7 @@ export default function WardrobeScreen() {
 
   return (
     <View style={ws.screen}>
-      <LinearGradient colors={Gradients.header} style={[ws.header, { paddingTop: HEADER_PADDING_TOP }]}>
+      <LinearGradient colors={Gradients.header} style={[ws.header, { paddingTop: insets.top + 10 }]}>
         <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start' }}>
           <View>
             <Text style={ws.headerTitle}>Wardrobe</Text>

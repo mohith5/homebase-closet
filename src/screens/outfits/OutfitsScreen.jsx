@@ -400,7 +400,7 @@ export default function OutfitsScreen() {
 
   return (
     <View style={s.screen}>
-      <LinearGradient colors={Gradients.header} style={[s.header, { paddingTop: HEADER_PADDING_TOP }]}>
+      <LinearGradient colors={Gradients.header} style={[s.header, { paddingTop: insets.top + 10 }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
             <Text style={s.headerTitle}>✨ Stylie</Text>
