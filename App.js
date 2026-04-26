@@ -43,25 +43,56 @@ export default function App() {
     Logger.info('App', 'Loading household', { userId });
     const done = Logger.perf('App', 'loadHousehold');
     try {
+      let householdId = null;
+
+      // Try to find existing household membership
       const { data: hm, error: hmErr } = await supabase
         .from('household_members')
         .select('household_id')
         .eq('user_id', userId)
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (hmErr || !hm) {
-        Logger.warn('App', 'No household found', hmErr);
-        setBooting(false);
-        return;
+      if (hm?.household_id) {
+        householdId = hm.household_id;
+        Logger.info('App', 'Existing household found', { householdId });
+      } else {
+        // No household — create one automatically for this user
+        Logger.info('App', 'No household found — creating one', { userId });
+
+        const { data: newHousehold, error: hhErr } = await supabase
+          .from('households')
+          .insert({ name: 'My Home' })
+          .select()
+          .single();
+
+        if (hhErr) {
+          Logger.error('App', 'Failed to create household', hhErr);
+          setBooting(false);
+          return;
+        }
+
+        const { error: memberErr } = await supabase
+          .from('household_members')
+          .insert({ household_id: newHousehold.id, user_id: userId, role: 'admin' });
+
+        if (memberErr) {
+          Logger.error('App', 'Failed to add household member', memberErr);
+          setBooting(false);
+          return;
+        }
+
+        householdId = newHousehold.id;
+        Logger.info('App', 'New household created', { householdId });
       }
-      setHouseholdId(hm.household_id);
-      Logger.info('App', 'Household found', { householdId: hm.household_id });
 
+      setHouseholdId(householdId);
+
+      // Load closet profiles for this household
       const { data: profs, error: profErr } = await supabase
         .from('closet_profiles')
         .select('*')
-        .eq('household_id', hm.household_id)
+        .eq('household_id', householdId)
         .order('created_at');
 
       if (profErr) Logger.error('App', 'Profiles load error', profErr);
