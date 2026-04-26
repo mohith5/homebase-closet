@@ -1,29 +1,62 @@
 {
   "expo": {
-    "name": "homebase-closet",
+    "name": "HomeBase Closet",
     "slug": "homebase-closet",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#080c14"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mohith5.homebasecloset",
+      "infoPlist": {
+        "NSCameraUsageDescription": "HomeBase Closet uses your camera to photograph clothing items and scan barcodes.",
+        "NSPhotoLibraryUsageDescription": "HomeBase Closet accesses your photos to add clothing items and worn-outfit photos.",
+        "NSPhotoLibraryAddUsageDescription": "HomeBase Closet saves outfit photos to your library."
+      }
     },
     "android": {
+      "package": "com.mohith5.homebasecloset",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#080c14"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-barcode-scanner",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-camera",
+        { "cameraPermission": "HomeBase Closet uses your camera to scan barcodes and photograph clothing." }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "HomeBase Closet accesses your photos to add clothing items.",
+          "cameraPermission": "HomeBase Closet uses your camera to photograph clothing."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "homebase-closet"
+      }
     }
   }
 }
