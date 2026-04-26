@@ -163,7 +163,9 @@ Name: ${profile.display_name || 'User'}
 Body type: ${profile.body_type || 'not specified'}
 Skin tone: ${profile.skin_tone || 'not specified'}
 Style vibe: ${(profile.style_vibe || []).join(', ') || 'not specified'}
-Hair: ${profile.hair_type || ''} ${profile.hair_length || ''}
+Hair type: ${profile.hair_type || 'not specified'}, Length: ${profile.hair_length || 'not specified'}
+Hair styling method: ${profile.hair_styling_method || 'not specified'}
+Hair tools available: ${(profile.hair_styling_tools || []).join(', ') || 'not specified'}
 
 ━━ WEATHER INTELLIGENCE ━━
 ${weatherContext}
@@ -206,9 +208,11 @@ ${wardrobeText}
     }
   ],
   "hair": {
-    "suggestion": "Specific hairstyle name",
-    "how_to": "Brief how-to",
-    "why": "Why this works for the occasion + face/hair type"
+    "suggestion": "Specific hairstyle name achievable with their tools",
+    "how_to": "Step-by-step using ONLY tools they own (blowdryer/straightener etc)",
+    "time_needed": "e.g. 10 mins",
+    "cap_recommendation": "Should they wear a cap/hat today? Yes/No and which type if yes",
+    "why": "Why this style works for the occasion, weather, and their hair type"
   },
   "avoid_today": "What NOT to wear today and why (weather/occasion based)",
   "shopping_gap": "One item missing from wardrobe that would elevate these looks"

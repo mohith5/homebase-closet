@@ -500,13 +500,16 @@ export default function WardrobeScreen() {
     <TouchableOpacity
       style={ws.itemCard}
       activeOpacity={0.85}
-      onPress={() => setEditingItem(item)}       // tap = edit
-      onLongPress={() => deleteItem(item.id)}    // long press = delete
+      onPress={() => setEditingItem(item)}
+      onLongPress={() => deleteItem(item.id)}
     >
-      {/* Always show category icon — never personal photos */}
-      <View style={ws.itemIconBox}>
-        <Text style={ws.itemEmoji}>{CATEGORY_ICONS[item.category] || '👕'}</Text>
-      </View>
+      {/* Show signed photo if available, else category emoji */}
+      {item.photo_url
+        ? <Image source={{ uri: item.photo_url }} style={ws.itemPhoto} resizeMode="cover" />
+        : <View style={ws.itemIconBox}>
+            <Text style={ws.itemEmoji}>{CATEGORY_ICONS[item.category] || '👕'}</Text>
+          </View>
+      }
       <View style={ws.itemInfo}>
         <Text style={ws.itemName} numberOfLines={1}>{item.name || item.category}</Text>
         <Text style={ws.itemMeta} numberOfLines={1}>
@@ -521,8 +524,8 @@ export default function WardrobeScreen() {
   ), [wardrobe]);
 
   return (
-    <View style={[ws.screen, { paddingTop: insets.top }]}>
-      <LinearGradient colors={Gradients.header} style={ws.header}>
+    <View style={ws.screen}>
+      <LinearGradient colors={Gradients.header} style={[ws.header, { paddingTop: insets.top + 12 }]}>
         <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start' }}>
           <View>
             <Text style={ws.headerTitle}>Wardrobe</Text>
@@ -653,6 +656,7 @@ const ws = StyleSheet.create({
   searchInput: { flex:1, fontSize:14, color:Colors.text },
   filterRow: { paddingHorizontal:12, paddingBottom:8 },
   itemCard: { width:CARD, backgroundColor:Colors.card, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, overflow:'hidden', ...Shadow.card, position:'relative' },
+  itemPhoto: { width:'100%', height:CARD * 0.9 },
   itemIconBox: { height:CARD * 0.9, backgroundColor:Colors.bg3, alignItems:'center', justifyContent:'center' },
   itemEmoji: { fontSize:52 },
   itemInfo: { padding:10 },

@@ -164,7 +164,7 @@ const ww = StyleSheet.create({
 export default function OutfitsScreen() {
   const insets = useSafeAreaInsets();
   const profile = useAppStore(s => s.getActiveProfile());
-  const { wardrobe, outfitHistory, setOutfitHistory, addOutfitHistory, showToast, householdId } = useAppStore();
+  const { wardrobe, setWardrobe, outfitHistory, setOutfitHistory, addOutfitHistory, showToast, householdId } = useAppStore();
 
   const [occasion, setOccasion] = useState('');
   const [customOcc, setCustomOcc] = useState('');
@@ -260,12 +260,27 @@ export default function OutfitsScreen() {
 
     setGenerating(true);
     if (!isMore) setResult(null);
-    Logger.info('Outfits', isMore ? 'Getting more suggestions' : 'Generating outfits', { occasion: occ, wardrobeCount: wardrobe.length });
+
+    // Always fetch fresh wardrobe from DB so nothing is missed
+    let freshWardrobe = wardrobe;
+    try {
+      const { data: fresh } = await supabase
+        .from('wardrobe_items').select('*')
+        .eq('profile_id', profile.id)
+        .order('category');
+      if (fresh && fresh.length > 0) {
+        freshWardrobe = fresh;
+        setWardrobe(fresh); // sync store
+        Logger.info('Outfits', `Fresh wardrobe loaded: ${fresh.length} items`, fresh.map(i => `${i.brand || ''} ${i.name || i.category}`).join(', '));
+      }
+    } catch (e) { Logger.warn('Outfits', 'Fresh wardrobe load failed, using cached', e); }
+
+    Logger.info('Outfits', isMore ? 'Getting more suggestions' : 'Generating outfits', { occasion: occ, wardrobeCount: freshWardrobe.length });
 
     try {
       const data = await generateOutfits({
         profile,
-        wardrobeItems: wardrobe,
+        wardrobeItems: freshWardrobe,
         occasion: occ,
         location: weather?.city,
         weather,
@@ -321,8 +336,8 @@ export default function OutfitsScreen() {
   const occ = customOcc.trim() || occasion;
 
   return (
-    <View style={[s.screen, { paddingTop: insets.top }]}>
-      <LinearGradient colors={Gradients.header} style={s.header}>
+    <View style={s.screen}>
+      <LinearGradient colors={Gradients.header} style={[s.header, { paddingTop: insets.top + 12 }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
             <Text style={s.headerTitle}>✨ JARVIS Stylist</Text>
@@ -429,8 +444,16 @@ export default function OutfitsScreen() {
                 {result.hair && (
                   <View style={s.hairCard}>
                     <Text style={s.hairLabel}>💇 Hair Suggestion</Text>
-                    <Text style={s.hairSuggestion}>{result.hair.suggestion}</Text>
+                    <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'center' }}>
+                      <Text style={s.hairSuggestion}>{result.hair.suggestion}</Text>
+                      {result.hair.time_needed && <Text style={{ fontSize:11, color:'#a78bfa', fontWeight:'600' }}>⏱ {result.hair.time_needed}</Text>}
+                    </View>
                     {result.hair.how_to && <Text style={s.hairDetail}>{result.hair.how_to}</Text>}
+                    {result.hair.cap_recommendation && (
+                      <View style={{ backgroundColor:'rgba(251,191,36,0.08)', borderRadius:8, padding:8, marginTop:6 }}>
+                        <Text style={{ fontSize:12, color:Colors.warning }}>🧢 {result.hair.cap_recommendation}</Text>
+                      </View>
+                    )}
                     {result.hair.why && <Text style={s.hairWhy}>{result.hair.why}</Text>}
                   </View>
                 )}

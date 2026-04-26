@@ -15,8 +15,10 @@ const BODY_TYPES  = ['Slim','Athletic','Average','Stocky','Tall-Slim','Broad Sho
 const SKIN_TONES  = ['Fair','Light','Medium','Olive','Tan','Dark','Deep'];
 const STYLE_VIBES = ['Classic','Minimalist','Casual','Smart Casual','Streetwear','Bohemian','Bold','Preppy','Edgy'];
 const OCCASIONS   = ['Work/Office','Date Night','Weekend Casual','Formal/Event','Gym/Active','Travel','Beach','Party','Outdoor'];
-const HAIR_TYPES  = ['Straight','Wavy','Curly','Coily'];
-const HAIR_LENGTHS= ['Bald/Very Short','Short','Medium','Long','Very Long'];
+const HAIR_TYPES   = ['Straight','Wavy','Curly','Coily'];
+const HAIR_LENGTHS = ['Bald/Very Short','Short','Medium','Long','Very Long'];
+const HAIR_METHODS = ['Blowdry & Straighten','Blowdry & Curl','Air Dry Natural','Diffuse (Curly)','Quick Towel Dry','Always Wear Cap/Hat'];
+const HAIR_TOOLS   = ['Blowdryer','Straightener','Curling Iron','Diffuser','Round Brush','No Tools'];
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -90,8 +92,8 @@ export default function ProfileScreen() {
   if (!profile) return null;
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <LinearGradient colors={Gradients.header} style={styles.header}>
+    <View style={styles.screen}>
+      <LinearGradient colors={Gradients.header} style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.headerTitle}>Profile</Text>
         <Text style={styles.headerSub}>Edit your style profile</Text>
       </LinearGradient>
@@ -138,6 +140,13 @@ export default function ProfileScreen() {
         <Field label="Hair Length">
           <View style={styles.pills}>{HAIR_LENGTHS.map(h => <Pill key={h} label={h} active={form.hair_length === h} onPress={() => setForm(f => ({ ...f, hair_length: h }))} />)}</View>
         </Field>
+        <Field label="How You Style Your Hair">
+          <Text style={styles.fieldHint}>JARVIS uses this to suggest realistic hairstyles you can actually do</Text>
+          <View style={styles.pills}>{HAIR_METHODS.map(h => <Pill key={h} label={h} active={form.hair_styling_method === h} onPress={() => setForm(f => ({ ...f, hair_styling_method: h }))} />)}</View>
+        </Field>
+        <Field label="Hair Tools You Own">
+          <View style={styles.pills}>{HAIR_TOOLS.map(h => <Pill key={h} label={h} active={(form.hair_styling_tools||[]).includes(h)} onPress={() => toggle('hair_styling_tools', h)} />)}</View>
+        </Field>
 
         <TouchableOpacity onPress={save} disabled={saving} activeOpacity={0.8}>
           <LinearGradient colors={Gradients.accent} style={[styles.saveBtn, saving && { opacity: 0.6 }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
@@ -183,7 +192,8 @@ const styles = StyleSheet.create({
   switchBtnActive: { borderColor: Colors.accent2, backgroundColor: 'rgba(29,78,216,0.15)' },
   switchLabel: { fontSize: 13, fontWeight: '600', color: Colors.text2 },
   switchLabelActive: { color: Colors.accent2 },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: Colors.text2, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: Colors.text2, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+  fieldHint: { fontSize: 11, color: Colors.text3, marginBottom: 8, lineHeight: 16 },
   pills: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -3 },
   input: { backgroundColor: Colors.inpBg, borderWidth: 1, borderColor: Colors.inpBorder, borderRadius: Radius.md, padding: 13, fontSize: 15, color: Colors.text },
   saveBtn: { padding: 15, borderRadius: Radius.md, alignItems: 'center', marginBottom: 24 },
