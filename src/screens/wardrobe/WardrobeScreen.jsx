@@ -664,10 +664,12 @@ export default function WardrobeScreen() {
         </View>
       </View>
 
-      {/* Category filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ws.filterRow}>
-        {['All', ...CATEGORIES].map(c => <Pill key={c} label={`${CATEGORY_ICONS[c] || ''} ${c}`.trim()} active={filter===c} onPress={() => setFilter(c)} />)}
-      </ScrollView>
+      {/* Category filter — fixed height to prevent layout shift on tap */}
+      <View style={ws.filterWrap}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ws.filterRow}>
+          {['All', ...CATEGORIES].map(c => <Pill key={c} label={`${CATEGORY_ICONS[c] || ''} ${c}`.trim()} active={filter===c} onPress={() => setFilter(c)} />)}
+        </ScrollView>
+      </View>
 
       {loading
         ? <ActivityIndicator color={Colors.accent2} style={{ marginTop:60 }} />
@@ -745,9 +747,24 @@ export default function WardrobeScreen() {
       {/* Edit Item Modal */}
       <Modal visible={!!editingItem} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setEditingItem(null)}>
         <View style={{ flex:1, backgroundColor:Colors.bg }}>
-          <View style={ws.modalHeader}>
-            <Text style={{ color:Colors.text, fontSize:16, fontWeight:'600' }}>Edit Item</Text>
+          <View style={[ws.modalHeader, { justifyContent:'space-between' }]}>
             <TouchableOpacity onPress={() => setEditingItem(null)}>
+              <Text style={{ color:Colors.text2, fontSize:15 }}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={{ color:Colors.text, fontSize:16, fontWeight:'600' }}>Edit Item</Text>
+            <TouchableOpacity onPress={() => {
+              const item = editingItem;
+              if (!item) return;
+              Alert.alert('Delete Item', `Permanently delete "${item.name || item.category}"?`, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: async () => {
+                  await supabase.from('wardrobe_items').delete().eq('id', item.id);
+                  removeWardrobeItem(item.id);
+                  setEditingItem(null);
+                  showToast('Item deleted');
+                }}
+              ]);
+            }}>
               <Text style={{ color:Colors.error, fontSize:15, fontWeight:'600' }}>Delete</Text>
             </TouchableOpacity>
           </View>
@@ -774,7 +791,8 @@ const ws = StyleSheet.create({
   searchRow: { padding:12, paddingTop:8 },
   searchBox: { flexDirection:'row', alignItems:'center', backgroundColor:Colors.inpBg, borderWidth:1, borderColor:Colors.inpBorder, borderRadius:Radius.full, paddingHorizontal:14, paddingVertical:9, gap:8 },
   searchInput: { flex:1, fontSize:14, color:Colors.text },
-  filterRow: { paddingHorizontal:12, paddingBottom:8 },
+  filterWrap: { height:48 },
+  filterRow: { paddingHorizontal:12, paddingVertical:6, alignItems:'center' },
   itemCard: { width:CARD, backgroundColor:Colors.card, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, overflow:'hidden', ...Shadow.card, position:'relative' },
   itemPhoto: { width:'100%', height:CARD * 0.9 },
   itemIconBox: { height:CARD * 0.9, backgroundColor:Colors.bg3, alignItems:'center', justifyContent:'center' },
