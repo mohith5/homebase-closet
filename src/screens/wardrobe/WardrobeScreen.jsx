@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
 import Logger from '../../lib/logger';
-import { analyzeClothingPhoto, splitOutfitIntoItems } from '../../lib/claude';
+import { analyzeClothingPhoto } from '../../lib/claude';
 import { lookupBarcode } from '../../lib/barcode';
 import { uploadPhoto, imageToBase64 } from '../../lib/storage';
 import { Pill } from '../../components/Pill';
@@ -240,121 +240,172 @@ const m = StyleSheet.create({
 });
 
 /* ══════════════════════════════════════════════
-   UPLOAD & SEGREGATE SHEET
-   Handles multi-photo upload, parallel analysis,
-   shows detected items (not full-body photos)
+   UPLOAD & SMART DETECT SHEET
+   - Parallel analysis of multiple photos
+   - Auto-crops each item from photo (no face/body shown)
+   - Deduplicates against existing wardrobe
+   - Shows clean cropped product shots in review UI
 ══════════════════════════════════════════════ */
 function UploadSheet({ profile, householdId, onClose, onItemsSaved }) {
   const [processing, setProcessing] = useState(false);
-  const [detectedItems, setDetectedItems] = useState([]); // [{...itemData, confirmed, editing}]
+  const [statusMsg, setStatusMsg] = useState('');
+  const [detectedItems, setDetectedItems] = useState([]);
   const [saving, setSaving] = useState(false);
+  const { wardrobe } = useAppStore();
 
   async function pickAndAnalyze() {
-    const result = await ImagePicker.launchImageLibraryAsync({
+    const picked = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.75,
+      quality: 0.85, // higher quality for better cropping
       allowsMultipleSelection: true,
       selectionLimit: 10,
     });
-    if (result.canceled) return;
+    if (picked.canceled) return;
 
     setProcessing(true);
     setDetectedItems([]);
-    Logger.info('Wardrobe', `Analyzing ${result.assets.length} photos in parallel`);
+    setStatusMsg(`Scanning ${picked.assets.length} photo${picked.assets.length > 1 ? 's' : ''}...`);
+    Logger.info('Wardrobe', `Processing ${picked.assets.length} photos with full vision pipeline`);
 
-    // Analyze ALL photos simultaneously (parallel)
-    const promises = result.assets.map(async (asset) => {
-      try {
-        const b64 = await imageToBase64(asset.uri);
-        // Detect if it's a full-body/outfit photo or a single item
-        const items = await splitOutfitIntoItems(b64, 'image/jpeg');
-        Logger.info('Wardrobe', `Photo detected ${items.length} items`);
-        return items.map(item => ({ ...item, confirmed: true, _editing: false, _id: Math.random().toString(36) }));
-      } catch (e) {
-        Logger.error('Wardrobe', 'Photo analysis failed', e);
-        return [];
+    try {
+      // Process ALL photos in parallel — detect items + crop each one
+      const allResults = await Promise.all(
+        picked.assets.map(async (asset, photoIdx) => {
+          try {
+            setStatusMsg(`Detecting items in photo ${photoIdx + 1}...`);
+            const { processPhotoIntoItems } = await import('../../lib/vision');
+            const results = await processPhotoIntoItems(asset.uri, wardrobe);
+            Logger.info('Wardrobe', `Photo ${photoIdx + 1}: ${results.length} items detected`);
+            return results;
+          } catch (e) {
+            Logger.error('Wardrobe', `Photo ${photoIdx + 1} failed`, e);
+            return [];
+          }
+        })
+      );
+
+      const flat = allResults.flat();
+      const newItems = flat.filter(r => !r.isDuplicate);
+      const dupes = flat.filter(r => r.isDuplicate);
+
+      Logger.info('Wardrobe', `Total: ${flat.length} items, ${newItems.length} new, ${dupes.length} duplicates`);
+      setStatusMsg('');
+
+      // Convert to UI state
+      const uiItems = flat.map(r => ({
+        ...r.item,
+        croppedUri: r.croppedUri,
+        fingerprint: r.fingerprint,
+        isDuplicate: r.isDuplicate,
+        duplicateOf: r.duplicateOf,
+        confirmed: !r.isDuplicate, // duplicates start unconfirmed
+        _id: Math.random().toString(36).slice(2),
+      }));
+
+      setDetectedItems(uiItems);
+
+      if (flat.length === 0) {
+        Alert.alert(
+          'No Items Detected',
+          'Try a clearer photo with good lighting.\n\n• Full-body photos work best\n• Make sure clothes are clearly visible\n• Good lighting helps brand detection'
+        );
+      } else if (dupes.length > 0) {
+        Alert.alert(
+          `${dupes.length} Duplicate${dupes.length > 1 ? 's' : ''} Found`,
+          `${dupes.length} item${dupes.length > 1 ? 's' : ''} already exist in your wardrobe and were unchecked. Review below.`
+        );
       }
-    });
-
-    const results = await Promise.all(promises);
-    const allItems = results.flat();
-    Logger.info('Wardrobe', `Total items detected across all photos: ${allItems.length}`);
-    setDetectedItems(allItems);
-    setProcessing(false);
-
-    if (allItems.length === 0) {
-      Alert.alert('No Items Detected', 'Try a clearer photo with good lighting. Full-body photos work best.');
+    } catch (e) {
+      Logger.error('Wardrobe', 'Vision pipeline failed', e);
+      Alert.alert('Error', 'Could not analyze photos. Try again.');
     }
+
+    setProcessing(false);
   }
 
   function updateItem(id, field, value) {
     setDetectedItems(prev => prev.map(i => i._id === id ? { ...i, [field]: value } : i));
   }
-
-  function removeItem(id) {
-    setDetectedItems(prev => prev.filter(i => i._id !== id));
-  }
-
-  function toggleConfirm(id) {
-    setDetectedItems(prev => prev.map(i => i._id === id ? { ...i, confirmed: !i.confirmed } : i));
-  }
+  function removeItem(id) { setDetectedItems(prev => prev.filter(i => i._id !== id)); }
+  function toggleConfirm(id) { setDetectedItems(prev => prev.map(i => i._id === id ? { ...i, confirmed: !i.confirmed } : i)); }
 
   async function saveAll() {
     const toSave = detectedItems.filter(i => i.confirmed);
-    if (toSave.length === 0) { Alert.alert('Nothing to save', 'Confirm at least one item first.'); return; }
+    if (toSave.length === 0) { Alert.alert('Nothing selected', 'Tap ○ to confirm items before saving.'); return; }
     setSaving(true);
-    Logger.info('Wardrobe', `Saving ${toSave.length} confirmed items`);
+    setStatusMsg(`Uploading ${toSave.length} cropped photos...`);
+    Logger.info('Wardrobe', `Saving ${toSave.length} items with cropped photos`);
+
     try {
-      // Only include columns that exist in the DB — strip internal/unknown fields
+      const { uploadCroppedPhoto, getSignedPhotoUrl } = await import('../../lib/vision');
       const ALLOWED = new Set(['name','category','color','colors','material','fit','brand','model','occasions','seasons','notes','barcode']);
-      const inserts = toSave.map(({ _id, confirmed, _editing, ...item }) => {
+
+      const inserts = await Promise.all(toSave.map(async ({ _id, confirmed, croppedUri, fingerprint, isDuplicate, duplicateOf, ...item }) => {
+        // Upload the cropped product shot (clean item photo, no body/face)
+        let photo_url = null;
+        if (croppedUri) {
+          photo_url = await uploadCroppedPhoto(croppedUri, profile.id);
+        }
         const clean = {};
         for (const [k, v] of Object.entries(item)) { if (ALLOWED.has(k)) clean[k] = v; }
-        return { ...clean, photo_url: null, profile_id: profile.id, household_id: householdId };
-      });
+        return { ...clean, photo_url, profile_id: profile.id, household_id: householdId };
+      }));
+
+      setStatusMsg('Saving to wardrobe...');
       const { data, error } = await supabase.from('wardrobe_items').insert(inserts).select();
       if (error) throw error;
+
+      // Resolve signed URLs immediately so grid shows photos
+      const withUrls = await Promise.all(data.map(async item => {
+        if (!item.photo_url) return item;
+        const url = await getSignedPhotoUrl(item.photo_url);
+        return { ...item, photo_url: url };
+      }));
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onItemsSaved(data);
+      setStatusMsg('');
+      onItemsSaved(withUrls);
       onClose();
     } catch (e) {
-      Logger.error('Wardrobe', 'Batch save failed', e);
+      Logger.error('Wardrobe', 'Save failed', e);
       Alert.alert('Error', e.message);
     }
     setSaving(false);
   }
 
+  const confirmed = detectedItems.filter(i => i.confirmed).length;
+  const dupeCount = detectedItems.filter(i => i.isDuplicate).length;
+
   return (
     <ScrollView style={{ flex:1 }} contentContainerStyle={{ padding:Spacing.lg, paddingBottom:80 }}
-      showsVerticalScrollIndicator={false}>
+      showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <View style={u.handle} />
-      <Text style={u.title}>Upload & Auto-Detect Items</Text>
-      <Text style={u.sub}>Upload outfit photos — Stylie detects and separates every item automatically. Your personal photos are never stored.</Text>
+      <Text style={u.title}>Smart Wardrobe Scan</Text>
+      <Text style={u.sub}>
+        Upload any photo — outfit selfie, mirror pic, product shot.{'\n'}
+        Stylie auto-detects each item, crops a clean product photo, and checks for duplicates.
+      </Text>
 
       <TouchableOpacity onPress={pickAndAnalyze} disabled={processing} style={u.uploadBtn} activeOpacity={0.85}>
         <LinearGradient colors={['#1d4ed8','#7c3aed']} style={u.uploadBtnGrad} start={{x:0,y:0}} end={{x:1,y:0}}>
           {processing
-            ? <><ActivityIndicator color="#fff" size="small" /><Text style={u.uploadBtnText}>  Analyzing all photos...</Text></>
+            ? <><ActivityIndicator color="#fff" size="small" /><Text style={u.uploadBtnText}>  {statusMsg || 'Analyzing...'}</Text></>
             : <Text style={u.uploadBtnText}>📷  Select Photos (up to 10)</Text>
           }
         </LinearGradient>
       </TouchableOpacity>
 
-      {processing && (
-        <View style={u.progressCard}>
-          <ActivityIndicator color={Colors.accent2} />
-          <Text style={u.progressText}>Stylie is scanning all photos simultaneously and detecting each item...</Text>
-        </View>
-      )}
-
       {detectedItems.length > 0 && (
         <>
-          <Text style={u.detectedHeader}>
-            {detectedItems.length} items detected — confirm what to save
-          </Text>
-          <Text style={u.detectedSub}>Tap to confirm ✓ or remove ✕. Edit any field before saving.</Text>
+          <View style={u.summaryRow}>
+            <Text style={u.summaryText}>
+              {detectedItems.length} items detected
+              {dupeCount > 0 ? ` · ${dupeCount} duplicates` : ''}
+            </Text>
+            <Text style={u.summaryHint}>Tap item to edit • Long press to remove</Text>
+          </View>
 
-          {detectedItems.map((item) => (
+          {detectedItems.map(item => (
             <DetectedItemCard
               key={item._id}
               item={item}
@@ -364,12 +415,15 @@ function UploadSheet({ profile, householdId, onClose, onItemsSaved }) {
             />
           ))}
 
-          <TouchableOpacity onPress={saveAll} disabled={saving} activeOpacity={0.85}>
-            <LinearGradient colors={['#1d4ed8','#7c3aed']} style={[u.saveAllBtn, saving && { opacity:0.6 }]}
-              start={{x:0,y:0}} end={{x:1,y:0}}>
+          <TouchableOpacity onPress={saveAll} disabled={saving || confirmed === 0} activeOpacity={0.85}>
+            <LinearGradient
+              colors={confirmed > 0 ? ['#1d4ed8','#7c3aed'] : ['#334155','#334155']}
+              style={[u.saveAllBtn, saving && { opacity:0.6 }]}
+              start={{x:0,y:0}} end={{x:1,y:0}}
+            >
               {saving
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={u.saveAllText}>Save {detectedItems.filter(i=>i.confirmed).length} Items to Wardrobe</Text>
+                ? <><ActivityIndicator color="#fff" size="small" /><Text style={u.saveAllText}>  {statusMsg}</Text></>
+                : <Text style={u.saveAllText}>Save {confirmed} Item{confirmed !== 1 ? 's' : ''} to Wardrobe</Text>
               }
             </LinearGradient>
           </TouchableOpacity>
@@ -379,39 +433,49 @@ function UploadSheet({ profile, householdId, onClose, onItemsSaved }) {
   );
 }
 
-/* Single detected item card — shows category icon, NOT the photo */
+/* Detected item card — shows CROPPED product shot, not the original photo */
 function DetectedItemCard({ item, onToggleConfirm, onRemove, onChange }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <View style={[u.itemCard, !item.confirmed && { opacity:0.45 }]}>
+    <View style={[u.itemCard, !item.confirmed && { opacity: 0.5 }]}>
       <View style={u.itemCardHeader}>
-        {/* Category icon — never a personal photo */}
-        <View style={u.itemIcon}>
-          <Text style={{ fontSize:28 }}>{CATEGORY_ICONS[item.category] || '👕'}</Text>
+        {/* Cropped product shot — or emoji if no crop available */}
+        <TouchableOpacity onPress={onToggleConfirm} style={u.itemPhotoBox} activeOpacity={0.8}>
+          {item.croppedUri
+            ? <Image source={{ uri: item.croppedUri }} style={u.itemCroppedPhoto} resizeMode="cover" />
+            : <View style={u.itemIconFallback}>
+                <Text style={{ fontSize: 26 }}>{CATEGORY_ICONS[item.category] || '👕'}</Text>
+              </View>
+          }
+          {/* Confirm overlay */}
+          <View style={[u.checkOverlay, item.confirmed && u.checkOverlayActive]}>
+            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{item.confirmed ? '✓' : ''}</Text>
+          </View>
+        </TouchableOpacity>
+
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          {item.isDuplicate && (
+            <View style={u.dupeBadge}><Text style={u.dupeBadgeText}>Already in wardrobe</Text></View>
+          )}
+          <Text style={u.itemName} numberOfLines={2}>{item.name || item.category}</Text>
+          <Text style={u.itemMeta}>{[item.color, item.brand, item.fit].filter(Boolean).join(' · ')}</Text>
+          <Text style={u.itemCategory}>{item.category}</Text>
         </View>
-        <View style={{ flex:1 }}>
-          <Text style={u.itemName}>{item.name || item.category}</Text>
-          <Text style={u.itemMeta}>{[item.color, item.category, item.fit].filter(Boolean).join(' · ')}</Text>
-        </View>
-        <View style={{ flexDirection:'row', gap:8 }}>
-          <TouchableOpacity onPress={onToggleConfirm} style={[u.confirmBtn, item.confirmed && u.confirmBtnActive]}>
-            <Text style={{ fontSize:16 }}>{item.confirmed ? '✓' : '○'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onRemove} style={u.removeBtn}>
-            <Text style={{ fontSize:16, color:Colors.error }}>✕</Text>
-          </TouchableOpacity>
-        </View>
+
+        <TouchableOpacity onPress={onRemove} style={u.removeBtn}>
+          <Text style={{ fontSize: 18, color: Colors.text3 }}>✕</Text>
+        </TouchableOpacity>
       </View>
 
       <TouchableOpacity onPress={() => setExpanded(e => !e)} style={u.editToggle}>
-        <Text style={u.editToggleText}>{expanded ? '▲ Less' : '✏️ Edit details'}</Text>
+        <Text style={u.editToggleText}>{expanded ? '▲ Done' : '✏️ Edit'}</Text>
       </TouchableOpacity>
 
       {expanded && (
         <View style={u.editSection}>
           <Text style={u.editLabel}>Category</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={{ flexDirection:'row', gap:6 }}>
+            <View style={{ flexDirection:'row', gap:6, paddingVertical:4 }}>
               {CATEGORIES.map(c => <Pill key={c} label={c} active={item.category===c} onPress={() => onChange('category', c)} />)}
             </View>
           </ScrollView>
@@ -423,7 +487,7 @@ function DetectedItemCard({ item, onToggleConfirm, onRemove, onChange }) {
             placeholder="Color" placeholderTextColor={Colors.text3} />
           <Text style={u.editLabel}>Brand</Text>
           <TextInput style={u.editInput} value={item.brand || ''} onChangeText={v => onChange('brand', v)}
-            placeholder="Brand (optional)" placeholderTextColor={Colors.text3} />
+            placeholder="Brand" placeholderTextColor={Colors.text3} />
         </View>
       )}
     </View>
@@ -437,24 +501,29 @@ const u = StyleSheet.create({
   uploadBtn: { borderRadius:Radius.md, overflow:'hidden', marginBottom:16 },
   uploadBtnGrad: { padding:16, flexDirection:'row', alignItems:'center', justifyContent:'center' },
   uploadBtnText: { color:'#fff', fontSize:15, fontWeight:'700' },
-  progressCard: { backgroundColor:Colors.bg3, borderRadius:Radius.md, borderWidth:1, borderColor:Colors.border, padding:16, flexDirection:'row', alignItems:'center', gap:12, marginBottom:16 },
-  progressText: { flex:1, fontSize:13, color:Colors.text2, lineHeight:19 },
-  detectedHeader: { fontSize:16, fontWeight:'700', color:Colors.text, marginBottom:4, marginTop:8 },
-  detectedSub: { fontSize:12, color:Colors.text3, marginBottom:14 },
+  summaryRow: { marginBottom:12, gap:2 },
+  summaryText: { fontSize:15, fontWeight:'700', color:Colors.text },
+  summaryHint: { fontSize:11, color:Colors.text3 },
   itemCard: { backgroundColor:Colors.card, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, padding:14, marginBottom:12 },
-  itemCardHeader: { flexDirection:'row', alignItems:'center', gap:12, marginBottom:8 },
-  itemIcon: { width:52, height:52, backgroundColor:Colors.bg3, borderRadius:Radius.md, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:Colors.border },
-  itemName: { fontSize:14, fontWeight:'600', color:Colors.text },
-  itemMeta: { fontSize:12, color:Colors.text2, marginTop:2 },
-  confirmBtn: { width:36, height:36, borderRadius:18, borderWidth:1.5, borderColor:Colors.border, alignItems:'center', justifyContent:'center', backgroundColor:Colors.bg3 },
-  confirmBtnActive: { borderColor:Colors.success, backgroundColor:'rgba(74,222,128,0.15)' },
-  removeBtn: { width:36, height:36, borderRadius:18, alignItems:'center', justifyContent:'center' },
-  editToggle: { paddingTop:6 },
+  itemCardHeader: { flexDirection:'row', alignItems:'flex-start', marginBottom:6 },
+  // Cropped product shot — square thumb
+  itemPhotoBox: { width:72, height:72, borderRadius:Radius.md, overflow:'hidden', position:'relative' },
+  itemCroppedPhoto: { width:'100%', height:'100%' },
+  itemIconFallback: { width:'100%', height:'100%', backgroundColor:Colors.bg3, alignItems:'center', justifyContent:'center' },
+  checkOverlay: { position:'absolute', bottom:0, right:0, width:22, height:22, borderRadius:11, backgroundColor:'rgba(0,0,0,0.4)', alignItems:'center', justifyContent:'center' },
+  checkOverlayActive: { backgroundColor:Colors.success },
+  dupeBadge: { backgroundColor:'rgba(251,191,36,0.15)', borderRadius:4, paddingHorizontal:6, paddingVertical:2, alignSelf:'flex-start', marginBottom:4 },
+  dupeBadgeText: { fontSize:10, color:Colors.warning, fontWeight:'700' },
+  itemName: { fontSize:13, fontWeight:'600', color:Colors.text, lineHeight:18 },
+  itemMeta: { fontSize:11, color:Colors.text2, marginTop:2 },
+  itemCategory: { fontSize:10, color:Colors.text3, marginTop:2, textTransform:'uppercase', letterSpacing:0.4 },
+  removeBtn: { padding:4, marginLeft:4 },
+  editToggle: { paddingTop:4 },
   editToggleText: { fontSize:12, color:Colors.accent2, fontWeight:'600' },
   editSection: { marginTop:10, gap:8 },
   editLabel: { fontSize:11, fontWeight:'600', color:Colors.text3, textTransform:'uppercase', letterSpacing:0.4 },
   editInput: { backgroundColor:Colors.inpBg, borderWidth:1, borderColor:Colors.inpBorder, borderRadius:Radius.sm, padding:10, fontSize:14, color:Colors.text },
-  saveAllBtn: { padding:15, borderRadius:Radius.md, alignItems:'center', marginTop:8 },
+  saveAllBtn: { padding:15, borderRadius:Radius.md, alignItems:'center', flexDirection:'row', justifyContent:'center', marginTop:8 },
   saveAllText: { color:'#fff', fontSize:15, fontWeight:'700' },
 });
 

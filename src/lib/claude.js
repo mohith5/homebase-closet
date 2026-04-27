@@ -122,40 +122,57 @@ Return ONLY valid JSON: { "name": string (include brand+model if identified e.g.
   return parseClaudeJSON(text);
 }
 
-// Haiku — splits outfit photo into clearly visible items only, with brand detection
+/**
+ * Splits a photo into individual clothing items WITH bounding boxes for cropping.
+ * Returns each item with crop coordinates so we can auto-crop a clean product shot.
+ * Uses Sonnet for accuracy on the bounding box task — Haiku struggles with coordinates.
+ */
 export async function splitOutfitIntoItems(base64, mimeType = 'image/jpeg') {
-  Logger.info('Claude', 'Splitting outfit into individual items (Haiku)');
+  Logger.info('Claude', 'Splitting outfit into items with bounding boxes (Sonnet)');
   const text = await callClaude({
-    model: MODELS.fast, // Haiku — cheap. Better prompt prevents hallucinations
-    system: `You are a fashion expert and brand identifier analyzing a photo of a person.
+    model: MODELS.smart,
+    system: `You are a computer vision expert and fashion analyst. Analyze this photo and detect every clothing item and accessory that is CLEARLY VISIBLE.
+
+For each item return its location in the image as a bounding box using percentage coordinates (0-100) from top-left corner.
 
 CRITICAL RULES:
-- ONLY list items that are CLEARLY AND DEFINITIVELY VISIBLE in the photo
-- Do NOT invent or assume accessories (no sunglasses if none visible, no watch if wrist not shown)
-- Ignore the person's face, hair, skin
-- Look carefully for brand logos, text, labels on clothing/shoes to identify brands
-- For shoes: look for brand logos (Nike swoosh, ON Running logo, Adidas stripes, etc.)
-- For clothing: look for visible logos, labels, distinctive patterns
-- Minimum confidence: only include an item if you are 90%+ sure it is present
+- ONLY include items you are 90%+ confident are present
+- Do NOT guess accessories not clearly visible (no sunglasses, watch, ring unless clearly shown)
+- Ignore the person's face and skin
+- Detect brand logos, text, labels on items
+- Bounding box must TIGHTLY surround just the item, not the whole body
+- For shoes: crop just the foot/shoe area
+- For tops: crop just the torso/shirt area
+- For pants: crop just the legs/pants area
 
-Return ONLY a valid JSON array (no markdown):
+Return ONLY valid JSON array:
 [{
-  "name": "descriptive name with brand+model if visible e.g. On Running Cloud 5",
-  "category": "one of: Tops|Bottoms|Dresses|Outerwear|Shoes|Jewelry|Watches|Bags|Hats|Belts|Sunglasses|Activewear|Swimwear|Loungewear",
+  "name": "brand+model name e.g. On Running Cloud 5 White",
+  "category": "Tops|Bottoms|Dresses|Outerwear|Shoes|Jewelry|Watches|Bags|Hats|Belts|Sunglasses|Activewear|Swimwear|Loungewear",
   "color": "primary color",
-  "material": "fabric if identifiable else empty string",
-  "fit": "slim/regular/loose/oversized or empty string",
-  "brand": "brand name if logo/label visible else empty string",
-  "model": "model name if identifiable else empty string"
+  "colors": ["all colors visible"],
+  "material": "fabric type if identifiable",
+  "fit": "slim|regular|loose|oversized|tailored",
+  "brand": "brand if logo visible",
+  "model": "model name if identifiable",
+  "fingerprint": "unique descriptor for dedup e.g. 'on-running-cloud5-white-mens-shoe'",
+  "bbox": {
+    "left": 0-100,
+    "top": 0-100,
+    "width": 0-100,
+    "height": 0-100
+  }
 }]`,
     messages: [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-      { type: 'text', text: 'List ONLY the clothing items and accessories that are clearly visible on this person. Be conservative — do not guess.' }
+      { type: 'text', text: 'Detect all clearly visible clothing items and accessories. Include tight bounding boxes for each item so I can crop them individually.' }
     ]}],
-    max_tokens: 1500,
+    max_tokens: 2000,
   });
   const parsed = parseClaudeJSON(text);
-  return Array.isArray(parsed) ? parsed : parsed.items || [];
+  const items = Array.isArray(parsed) ? parsed : parsed.items || [];
+  Logger.info('Claude', `Detected ${items.length} items with bounding boxes`);
+  return items;
 }
 
 // Sonnet — Couple outfit generation for date night occasions
