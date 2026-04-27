@@ -31,7 +31,8 @@ const CATEGORY_ICONS = {
 };
 
 const W = Dimensions.get('window').width;
-const CARD = (W - 36) / 2;
+const SIDEBAR_W = 58;
+const CARD = (W - SIDEBAR_W - 28) / 2;
 
 function emptyForm(defaults = {}) {
   return { name:'', category:'Tops', color:'Black', colors:[], material:'', fit:'Regular', occasions:[], seasons:[], brand:'', notes:'', ...defaults };
@@ -659,39 +660,58 @@ export default function WardrobeScreen() {
         <View style={ws.searchBox}>
           <Text>🔍</Text>
           <TextInput style={ws.searchInput} value={search} onChangeText={setSearch}
-            placeholder="Search by name, color, brand..." placeholderTextColor={Colors.text3} />
+            placeholder="Search..." placeholderTextColor={Colors.text3} />
           {search.length > 0 && <TouchableOpacity onPress={() => setSearch('')}><Text style={{ color:Colors.text3, fontSize:18 }}>×</Text></TouchableOpacity>}
         </View>
       </View>
 
-      {/* Category filter — fixed height to prevent layout shift on tap */}
-      <View style={ws.filterWrap}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ws.filterRow}>
-          {['All', ...CATEGORIES].map(c => <Pill key={c} label={`${CATEGORY_ICONS[c] || ''} ${c}`.trim()} active={filter===c} onPress={() => setFilter(c)} />)}
+      {/* Main layout: left sidebar tabs + right grid */}
+      <View style={ws.body}>
+        {/* Left sidebar — category tabs */}
+        <ScrollView style={ws.sidebar} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+          {['All', ...CATEGORIES].map(c => {
+            const active = filter === c;
+            const count = c === 'All' ? wardrobe.length : wardrobe.filter(i => i.category === c).length;
+            return (
+              <TouchableOpacity
+                key={c}
+                onPress={() => setFilter(c)}
+                style={[ws.sideTab, active && ws.sideTabActive]}
+                activeOpacity={0.7}
+              >
+                <Text style={ws.sideTabIcon}>{c === 'All' ? '✦' : (CATEGORY_ICONS[c] || '•')}</Text>
+                <Text style={[ws.sideTabLabel, active && ws.sideTabLabelActive]} numberOfLines={1}>{c}</Text>
+                {active && count > 0 && <Text style={[ws.sideTabCount, ws.sideTabCountActive]}>{count}</Text>}
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
-      </View>
 
-      {loading
-        ? <ActivityIndicator color={Colors.accent2} style={{ marginTop:60 }} />
-        : filtered.length === 0
-          ? <View style={ws.empty}>
-              <Text style={{ fontSize:52 }}>👚</Text>
-              <Text style={ws.emptyText}>{wardrobe.length === 0
-                ? 'Your wardrobe is empty.\nUpload outfit photos or add items manually.'
-                : 'No items match this filter.'
-              }</Text>
-            </View>
-          : <FlatList
-              data={filtered}
-              keyExtractor={i => i.id}
-              renderItem={renderItem}
-              numColumns={2}
-              contentContainerStyle={{ padding:12, paddingBottom:120 }}
-              columnWrapperStyle={{ gap:12 }}
-              ItemSeparatorComponent={() => <View style={{ height:12 }} />}
-              showsVerticalScrollIndicator={false}
-            />
-      }
+        {/* Right content */}
+        <View style={ws.gridArea}>
+          {loading
+            ? <ActivityIndicator color={Colors.accent2} style={{ marginTop:60 }} />
+            : filtered.length === 0
+              ? <View style={ws.empty}>
+                  <Text style={{ fontSize:44 }}>👚</Text>
+                  <Text style={ws.emptyText}>{wardrobe.length === 0
+                    ? 'Your wardrobe is empty.\nUpload photos or add manually.'
+                    : 'No items match.'
+                  }</Text>
+                </View>
+              : <FlatList
+                  data={filtered}
+                  keyExtractor={i => i.id}
+                  renderItem={renderItem}
+                  numColumns={2}
+                  contentContainerStyle={{ padding:8, paddingBottom:120 }}
+                  columnWrapperStyle={{ gap:8 }}
+                  ItemSeparatorComponent={() => <View style={{ height:8 }} />}
+                  showsVerticalScrollIndicator={false}
+                />
+          }
+        </View>
+      </View>
 
       {/* FABs — Upload (primary) + Manual add (secondary) */}
       <View style={ws.fabGroup}>
@@ -791,8 +811,16 @@ const ws = StyleSheet.create({
   searchRow: { padding:12, paddingTop:8 },
   searchBox: { flexDirection:'row', alignItems:'center', backgroundColor:Colors.inpBg, borderWidth:1, borderColor:Colors.inpBorder, borderRadius:Radius.full, paddingHorizontal:14, paddingVertical:9, gap:8 },
   searchInput: { flex:1, fontSize:14, color:Colors.text },
-  filterWrap: { height:48 },
-  filterRow: { paddingHorizontal:12, paddingVertical:6, alignItems:'center' },
+  body: { flex:1, flexDirection:'row' },
+  sidebar: { width:SIDEBAR_W, backgroundColor:Colors.bg2, borderRightWidth:1, borderRightColor:Colors.border },
+  sideTab: { alignItems:'center', paddingVertical:9, paddingHorizontal:2, borderRightWidth:2, borderRightColor:'transparent' },
+  sideTabActive: { backgroundColor:Colors.bg3, borderRightColor:Colors.accent2 },
+  sideTabIcon: { fontSize:16, marginBottom:2 },
+  sideTabLabel: { fontSize:9, color:Colors.text3, fontWeight:'500', textAlign:'center' },
+  sideTabLabelActive: { color:Colors.accent2, fontWeight:'700' },
+  sideTabCount: { fontSize:9, color:Colors.text3, marginTop:1 },
+  sideTabCountActive: { color:Colors.accent2 },
+  gridArea: { flex:1 },
   itemCard: { width:CARD, backgroundColor:Colors.card, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, overflow:'hidden', ...Shadow.card, position:'relative' },
   itemPhoto: { width:'100%', height:CARD * 0.9 },
   itemIconBox: { height:CARD * 0.9, backgroundColor:Colors.bg3, alignItems:'center', justifyContent:'center' },

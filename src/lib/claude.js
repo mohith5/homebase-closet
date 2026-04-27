@@ -341,6 +341,104 @@ ${wardrobeText}
   return parseClaudeJSON(text);
 }
 
+// Sonnet — Celebrity-stylist vacation planner
+// Mixes wardrobe items + expert buy recommendations + local style intel
+export async function planVacationOutfits({ profile, wardrobeItems, destination, startDate, endDate, activities }) {
+  Logger.info('Claude', 'Planning vacation outfits', { destination, startDate, endDate, activities });
+
+  const wardrobeText = wardrobeItems.length > 0
+    ? wardrobeItems.map((i, idx) =>
+        `[${idx}] ${i.name || i.category}: ${i.color} ${i.category}${i.fit ? `, ${i.fit} fit` : ''}${i.material ? `, ${i.material}` : ''}${i.brand ? ` (${i.brand})` : ''}`
+      ).join('\n')
+    : 'Wardrobe is empty — build the entire plan from expert recommendations.';
+
+  const activityList = activities.length > 0 ? activities.join(', ') : 'general sightseeing and leisure';
+
+  const system = `You are Stylie — the personal stylist to A-list celebrities. You've dressed talent for international press tours, European fashion weeks, and luxury travel. You know exactly what locals wear in every city, what reads as "tourist", what opens doors at nice restaurants, and how to pack light but look incredible every single day.
+
+━━ CLIENT PROFILE ━━
+Name: ${profile.display_name || 'Traveller'}
+Body type: ${profile.body_type || 'not specified'}
+Skin tone: ${profile.skin_tone || 'not specified'}
+Style vibe: ${(profile.style_vibe || []).join(', ') || 'not specified'}
+
+━━ TRIP DETAILS ━━
+Destination: ${destination}
+Dates: ${startDate} → ${endDate}
+Activities: ${activityList}
+
+━━ THEIR WARDROBE (what they already own) ━━
+${wardrobeText}
+
+━━ YOUR MISSION ━━
+1. Give them a complete, day-by-day packing plan that maximizes outfits per item (capsule wardrobe logic)
+2. Identify exactly what's MISSING from their wardrobe for this trip and recommend specific items to buy (brand, style, why)
+3. Give real local style intelligence — what do people actually wear in ${destination}? What will make them look local vs tourist? What dress codes exist?
+4. Think like a celebrity stylist: elevate every look, suggest accessories, think about how they photograph, how they feel walking into a room
+
+━━ RULES ━━
+- Wardrobe items: reference by their exact name/description from the list above
+- Buy recommendations: be specific (brand, item type, color, why it works for this trip and their profile)
+- Local intel: be specific to ${destination} — not generic travel advice
+- Weather: factor in typical weather for ${destination} during the travel dates
+- Packing: prioritize versatile pieces that work across multiple outfits
+- Return ONLY valid JSON
+
+━━ RESPONSE FORMAT ━━
+{
+  "destination_intel": {
+    "style_culture": "How locals dress in ${destination} — what's the vibe, what reads as local vs tourist",
+    "dress_codes": "Specific dress codes for restaurants, attractions, religious sites if applicable",
+    "weather_expectation": "Expected weather during trip dates and what that means for clothing",
+    "fashion_scene": "What's trending locally, what brands/styles are popular there",
+    "what_to_avoid": "What will make you look like a tourist or be out of place"
+  },
+  "packing_list": {
+    "from_wardrobe": [
+      { "item": "exact item name from wardrobe", "why": "why this item is essential for this trip", "outfits_count": 3 }
+    ],
+    "leave_behind": [
+      { "item": "exact item name from wardrobe", "why": "why this doesn't work for this trip" }
+    ]
+  },
+  "day_outfits": [
+    {
+      "day": "Day 1 — Arrival / Activity name",
+      "occasion": "e.g. Travel day / Exploring / Dinner",
+      "outfit": {
+        "items": ["item names — mix wardrobe + recommended buys"],
+        "description": "How the look comes together",
+        "styling_tip": "One tip to elevate it on the ground",
+        "local_relevance": "Why this reads well specifically in ${destination}"
+      }
+    }
+  ],
+  "buy_recommendations": [
+    {
+      "item": "Specific item name e.g. Slim-fit navy linen blazer",
+      "brand_suggestions": ["Brand 1", "Brand 2"],
+      "why": "Gap it fills + why it's perfect for this trip",
+      "price_range": "e.g. $80–$150",
+      "where_to_buy": "Best places to find this",
+      "outfits_it_unlocks": ["Outfit 1 description", "Outfit 2 description"]
+    }
+  ],
+  "capsule_summary": "2–3 sentence summary of the overall packing strategy — how many items, how many outfits, the overarching style story",
+  "celebrity_tip": "One gold-standard tip from a celebrity stylist perspective — the kind of advice that transforms a trip wardrobe"
+}`;
+
+  const systemBlocks = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
+
+  const text = await callClaude({
+    model: MODELS.smart,
+    system: systemBlocks,
+    messages: [{ role: 'user', content: `Plan my complete vacation wardrobe for ${destination} from ${startDate} to ${endDate}. Activities: ${activityList}. Use my wardrobe where possible, recommend what to buy for the gaps, and give me real local style intel.` }],
+    max_tokens: 5000,
+  });
+
+  return parseClaudeJSON(text);
+}
+
 function getSeason() {
   const month = new Date().getMonth();
   if (month >= 2 && month <= 4) return 'Spring';

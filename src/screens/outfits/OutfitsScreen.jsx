@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
 import Logger from '../../lib/logger';
-import { generateOutfits, generateCoupleOutfits, splitOutfitIntoItems } from '../../lib/claude';
+import { generateOutfits, generateCoupleOutfits, splitOutfitIntoItems, planVacationOutfits } from '../../lib/claude';
 import { getWeatherByCoords, getWeatherByCity } from '../../lib/weather';
 import { imageToBase64, uploadPhoto, getSignedUrl } from '../../lib/storage';
 import { Pill } from '../../components/Pill';
@@ -201,12 +201,311 @@ const ww = StyleSheet.create({
   forecastRain: { fontSize: 10, color: Colors.text3 },
 });
 
+const TRIP_ACTIVITIES = ['Sightseeing','Fine Dining','Business Meetings','Beach','Clubbing/Nightlife','Museums/Culture','Hiking/Outdoors','Shopping','Casual Cafes','Theatre/Opera','Spa/Wellness','Sports Events'];
+
+// ── Vacation Planner ──────────────────────────────────────────
+function VacationPlanner({ profile, wardrobe }) {
+  const [destination, setDestination] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [activities, setActivities] = useState([]);
+  const [planning, setPlanning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [expandedDay, setExpandedDay] = useState(null);
+  const { showToast } = useAppStore();
+
+  function toggleActivity(a) {
+    setActivities(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a]);
+  }
+
+  async function plan() {
+    if (!destination.trim()) { showToast('Enter a destination'); return; }
+    if (!startDate.trim() || !endDate.trim()) { showToast('Enter travel dates'); return; }
+    setPlanning(true);
+    setResult(null);
+    try {
+      let freshWardrobe = wardrobe;
+      const { supabase } = await import('../../lib/supabase');
+      const { data: fresh } = await supabase.from('wardrobe_items').select('*').eq('profile_id', profile.id).order('category');
+      if (fresh && fresh.length > 0) freshWardrobe = fresh;
+
+      const data = await planVacationOutfits({
+        profile,
+        wardrobeItems: freshWardrobe,
+        destination: destination.trim(),
+        startDate: startDate.trim(),
+        endDate: endDate.trim(),
+        activities,
+      });
+      setResult(data);
+    } catch (e) {
+      Logger.error('Outfits', 'Vacation plan failed', e);
+      showToast(e.message?.includes('limit') ? e.message : 'Could not plan trip. Try again.');
+    }
+    setPlanning(false);
+  }
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: Spacing.md, paddingBottom: 120 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      {/* Header */}
+      <View style={vp.heroBanner}>
+        <Text style={vp.heroEmoji}>✈️</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={vp.heroTitle}>Vacation Stylist</Text>
+          <Text style={vp.heroSub}>Celebrity-level packing plans · Local style intel · What to buy</Text>
+        </View>
+      </View>
+
+      {/* Trip inputs */}
+      <Text style={vp.label}>Destination</Text>
+      <TextInput
+        style={vp.input}
+        value={destination}
+        onChangeText={setDestination}
+        placeholder="e.g. London, UK · Tokyo · Amalfi Coast"
+        placeholderTextColor={Colors.text3}
+      />
+
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={vp.label}>From</Text>
+          <TextInput style={vp.input} value={startDate} onChangeText={setStartDate}
+            placeholder="e.g. May 10" placeholderTextColor={Colors.text3} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={vp.label}>To</Text>
+          <TextInput style={vp.input} value={endDate} onChangeText={setEndDate}
+            placeholder="e.g. May 17" placeholderTextColor={Colors.text3} />
+        </View>
+      </View>
+
+      <Text style={vp.label}>Activities</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -3, marginBottom: 4 }}>
+        {TRIP_ACTIVITIES.map(a => (
+          <Pill key={a} label={a} active={activities.includes(a)} onPress={() => toggleActivity(a)} />
+        ))}
+      </View>
+
+      <TouchableOpacity onPress={plan} disabled={planning} activeOpacity={0.85} style={{ marginTop: 20 }}>
+        <LinearGradient colors={['#1d4ed8','#7c3aed']} style={[vp.planBtn, planning && { opacity: 0.7 }]} start={{x:0,y:0}} end={{x:1,y:0}}>
+          {planning
+            ? <><ActivityIndicator color="#fff" size="small" /><Text style={vp.planBtnText}>  Styling your trip...</Text></>
+            : <Text style={vp.planBtnText}>✈️  Plan My Trip Wardrobe</Text>
+          }
+        </LinearGradient>
+      </TouchableOpacity>
+
+      {result && (
+        <View style={{ marginTop: 24 }}>
+
+          {/* Destination Intel */}
+          {result.destination_intel && (
+            <View style={vp.intelCard}>
+              <Text style={vp.intelHeader}>📍 {destination} — Style Intel</Text>
+              {result.destination_intel.style_culture && (
+                <View style={vp.intelRow}>
+                  <Text style={vp.intelLabel}>LOCAL VIBE</Text>
+                  <Text style={vp.intelText}>{result.destination_intel.style_culture}</Text>
+                </View>
+              )}
+              {result.destination_intel.weather_expectation && (
+                <View style={vp.intelRow}>
+                  <Text style={vp.intelLabel}>🌡 WEATHER</Text>
+                  <Text style={vp.intelText}>{result.destination_intel.weather_expectation}</Text>
+                </View>
+              )}
+              {result.destination_intel.dress_codes && (
+                <View style={vp.intelRow}>
+                  <Text style={vp.intelLabel}>👔 DRESS CODES</Text>
+                  <Text style={vp.intelText}>{result.destination_intel.dress_codes}</Text>
+                </View>
+              )}
+              {result.destination_intel.fashion_scene && (
+                <View style={vp.intelRow}>
+                  <Text style={vp.intelLabel}>🔥 FASHION SCENE</Text>
+                  <Text style={vp.intelText}>{result.destination_intel.fashion_scene}</Text>
+                </View>
+              )}
+              {result.destination_intel.what_to_avoid && (
+                <View style={[vp.intelRow, { borderTopWidth: 1, borderTopColor: Colors.error + '30', marginTop: 4, paddingTop: 10 }]}>
+                  <Text style={[vp.intelLabel, { color: Colors.error }]}>⚠️ AVOID</Text>
+                  <Text style={vp.intelText}>{result.destination_intel.what_to_avoid}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Capsule summary */}
+          {result.capsule_summary && (
+            <View style={vp.summaryCard}>
+              <Text style={vp.summaryLabel}>🧳 YOUR PACKING STRATEGY</Text>
+              <Text style={vp.summaryText}>{result.capsule_summary}</Text>
+            </View>
+          )}
+
+          {/* Pack / Leave Behind */}
+          {result.packing_list && (
+            <View style={vp.section}>
+              <Text style={vp.sectionTitle}>From Your Wardrobe</Text>
+              {(result.packing_list.from_wardrobe || []).map((p, i) => (
+                <View key={i} style={vp.packRow}>
+                  <View style={vp.packCheck}><Text style={{ color: Colors.success, fontSize: 12, fontWeight: '700' }}>✓</Text></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={vp.packItem}>{p.item}</Text>
+                    <Text style={vp.packWhy}>{p.why}</Text>
+                  </View>
+                  {p.outfits_count && <Text style={vp.outfitsCount}>{p.outfits_count} looks</Text>}
+                </View>
+              ))}
+              {(result.packing_list.leave_behind || []).length > 0 && (
+                <>
+                  <Text style={[vp.sectionTitle, { marginTop: 14, color: Colors.text3 }]}>Leave at Home</Text>
+                  {result.packing_list.leave_behind.map((p, i) => (
+                    <View key={i} style={[vp.packRow, { opacity: 0.6 }]}>
+                      <View style={[vp.packCheck, { backgroundColor: Colors.error + '18', borderColor: Colors.error + '30' }]}>
+                        <Text style={{ color: Colors.error, fontSize: 12, fontWeight: '700' }}>✕</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={vp.packItem}>{p.item}</Text>
+                        <Text style={vp.packWhy}>{p.why}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </>
+              )}
+            </View>
+          )}
+
+          {/* Day by day outfits */}
+          {(result.day_outfits || []).length > 0 && (
+            <View style={vp.section}>
+              <Text style={vp.sectionTitle}>Day-by-Day Looks</Text>
+              {result.day_outfits.map((d, i) => (
+                <TouchableOpacity key={i} onPress={() => setExpandedDay(expandedDay === i ? null : i)} style={vp.dayCard} activeOpacity={0.85}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={vp.dayLabel}>{d.day}</Text>
+                      <Text style={vp.dayOcc}>{d.occasion}</Text>
+                    </View>
+                    <Text style={{ color: Colors.text3, fontSize: 12 }}>{expandedDay === i ? '▲' : '▼'}</Text>
+                  </View>
+                  {expandedDay === i && d.outfit && (
+                    <View style={{ marginTop: 12 }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                        {(d.outfit.items || []).map((item, j) => (
+                          <View key={j} style={vp.itemChip}><Text style={vp.itemChipText}>{item}</Text></View>
+                        ))}
+                      </View>
+                      {d.outfit.description && <Text style={vp.dayDesc}>{d.outfit.description}</Text>}
+                      {d.outfit.local_relevance && (
+                        <Text style={vp.dayLocal}>📍 {d.outfit.local_relevance}</Text>
+                      )}
+                      {d.outfit.styling_tip && (
+                        <Text style={vp.dayTip}>💡 {d.outfit.styling_tip}</Text>
+                      )}
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Buy recommendations */}
+          {(result.buy_recommendations || []).length > 0 && (
+            <View style={vp.section}>
+              <Text style={vp.sectionTitle}>🛍 What to Buy Before You Go</Text>
+              <Text style={vp.sectionSub}>Gaps in your wardrobe — specific picks to complete the trip wardrobe</Text>
+              {result.buy_recommendations.map((b, i) => (
+                <View key={i} style={vp.buyCard}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                    <Text style={vp.buyItem}>{b.item}</Text>
+                    {b.price_range && <Text style={vp.buyPrice}>{b.price_range}</Text>}
+                  </View>
+                  {b.brand_suggestions?.length > 0 && (
+                    <Text style={vp.buyBrands}>Brands: {b.brand_suggestions.join(' · ')}</Text>
+                  )}
+                  <Text style={vp.buyWhy}>{b.why}</Text>
+                  {b.where_to_buy && <Text style={vp.buyWhere}>🏪 {b.where_to_buy}</Text>}
+                  {(b.outfits_it_unlocks || []).length > 0 && (
+                    <View style={vp.unlocks}>
+                      <Text style={vp.unlocksLabel}>Unlocks:</Text>
+                      {b.outfits_it_unlocks.map((o, j) => (
+                        <Text key={j} style={vp.unlockItem}>• {o}</Text>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Celebrity tip */}
+          {result.celebrity_tip && (
+            <View style={vp.celebCard}>
+              <Text style={vp.celebLabel}>✨ STYLIST'S GOLDEN TIP</Text>
+              <Text style={vp.celebTip}>{result.celebrity_tip}</Text>
+            </View>
+          )}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+const vp = StyleSheet.create({
+  heroBanner: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(29,78,216,0.08)', borderRadius: Radius.lg, borderWidth: 1, borderColor: 'rgba(29,78,216,0.2)', padding: 14, marginBottom: 20 },
+  heroEmoji: { fontSize: 32 },
+  heroTitle: { fontSize: 16, fontWeight: '700', color: Colors.text },
+  heroSub: { fontSize: 11, color: Colors.text2, marginTop: 2, lineHeight: 16 },
+  label: { fontSize: 11, fontWeight: '600', color: Colors.text2, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, marginTop: 14 },
+  input: { backgroundColor: Colors.inpBg, borderWidth: 1, borderColor: Colors.inpBorder, borderRadius: Radius.md, padding: 12, fontSize: 14, color: Colors.text },
+  planBtn: { padding: 16, borderRadius: Radius.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  planBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  intelCard: { backgroundColor: Colors.card, borderRadius: Radius.lg, borderWidth: 1, borderColor: 'rgba(29,78,216,0.25)', padding: Spacing.md, marginBottom: 14 },
+  intelHeader: { fontSize: 15, fontWeight: '700', color: Colors.text, marginBottom: 12 },
+  intelRow: { marginBottom: 10 },
+  intelLabel: { fontSize: 9, fontWeight: '700', color: Colors.accent2, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 3 },
+  intelText: { fontSize: 13, color: Colors.text2, lineHeight: 19 },
+  summaryCard: { backgroundColor: 'rgba(124,58,237,0.08)', borderRadius: Radius.lg, borderWidth: 1, borderColor: 'rgba(124,58,237,0.2)', padding: Spacing.md, marginBottom: 14 },
+  summaryLabel: { fontSize: 10, fontWeight: '700', color: '#a78bfa', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 },
+  summaryText: { fontSize: 13, color: Colors.text2, lineHeight: 20 },
+  section: { marginBottom: 20 },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: Colors.text, marginBottom: 10 },
+  sectionSub: { fontSize: 11, color: Colors.text3, marginBottom: 10, marginTop: -6 },
+  packRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8, backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, padding: 10 },
+  packCheck: { width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.success + '18', borderWidth: 1, borderColor: Colors.success + '40', alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  packItem: { fontSize: 13, fontWeight: '600', color: Colors.text, marginBottom: 2 },
+  packWhy: { fontSize: 11, color: Colors.text2, lineHeight: 16 },
+  outfitsCount: { fontSize: 10, color: Colors.accent2, fontWeight: '700', marginTop: 2 },
+  dayCard: { backgroundColor: Colors.card, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: Spacing.md, marginBottom: 8 },
+  dayLabel: { fontSize: 13, fontWeight: '700', color: Colors.text },
+  dayOcc: { fontSize: 11, color: Colors.accent2, marginTop: 2 },
+  itemChip: { backgroundColor: Colors.bg3, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border, paddingHorizontal: 10, paddingVertical: 4 },
+  itemChipText: { fontSize: 11, color: Colors.text },
+  dayDesc: { fontSize: 12, color: Colors.text2, lineHeight: 18, marginBottom: 6 },
+  dayLocal: { fontSize: 11, color: Colors.text3, lineHeight: 16, marginBottom: 4 },
+  dayTip: { fontSize: 11, color: Colors.warning, lineHeight: 16 },
+  buyCard: { backgroundColor: Colors.card, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: Spacing.md, marginBottom: 10 },
+  buyItem: { fontSize: 14, fontWeight: '700', color: Colors.text, flex: 1 },
+  buyPrice: { fontSize: 12, color: Colors.success, fontWeight: '600' },
+  buyBrands: { fontSize: 11, color: Colors.accent2, marginBottom: 4, fontWeight: '600' },
+  buyWhy: { fontSize: 12, color: Colors.text2, lineHeight: 18, marginBottom: 4 },
+  buyWhere: { fontSize: 11, color: Colors.text3, marginBottom: 6 },
+  unlocks: { backgroundColor: Colors.bg3, borderRadius: Radius.sm, padding: 8, marginTop: 4 },
+  unlocksLabel: { fontSize: 10, fontWeight: '700', color: Colors.text3, textTransform: 'uppercase', marginBottom: 4 },
+  unlockItem: { fontSize: 11, color: Colors.text2, lineHeight: 18 },
+  celebCard: { backgroundColor: 'rgba(251,191,36,0.08)', borderRadius: Radius.lg, borderWidth: 1, borderColor: 'rgba(251,191,36,0.25)', padding: Spacing.md, marginBottom: 20 },
+  celebLabel: { fontSize: 10, fontWeight: '700', color: Colors.warning, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
+  celebTip: { fontSize: 14, color: Colors.text, lineHeight: 21, fontStyle: 'italic' },
+});
+
 // ── Main Screen ───────────────────────────────────────────────
 export default function OutfitsScreen() {
   const insets = useSafeAreaInsets();
   const profile = useAppStore(s => s.getActiveProfile());
   const { wardrobe, setWardrobe, outfitHistory, setOutfitHistory, addOutfitHistory, showToast, householdId } = useAppStore();
 
+  const [activeTab, setActiveTab] = useState('stylie'); // 'stylie' | 'vacation'
   const [occasion, setOccasion] = useState('');
   const [customOcc, setCustomOcc] = useState('');
   const [cityInput, setCityInput] = useState('');
@@ -401,10 +700,10 @@ export default function OutfitsScreen() {
   return (
     <View style={s.screen}>
       <LinearGradient colors={Gradients.header} style={[s.header, { paddingTop: insets.top + 10 }]}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <View>
             <Text style={s.headerTitle}>✨ Stylie</Text>
-            <Text style={s.headerSub}>{profile?.display_name} · Stylie AI · {usageCount}/100 outfit calls this month</Text>
+            <Text style={s.headerSub}>{profile?.display_name} · {usageCount}/100 AI calls this month</Text>
           </View>
           <TouchableOpacity onPress={() => setShowSaved(s => !s)} style={s.savedToggle}>
             <Text style={{ fontSize: 11, fontWeight: '700', color: showSaved ? Colors.accent2 : Colors.text3 }}>
@@ -412,8 +711,20 @@ export default function OutfitsScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+        {/* Tabs */}
+        <View style={s.tabBar}>
+          <TouchableOpacity onPress={() => setActiveTab('stylie')} style={[s.tab, activeTab === 'stylie' && s.tabActive]}>
+            <Text style={[s.tabText, activeTab === 'stylie' && s.tabTextActive]}>✨ Daily Outfits</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setActiveTab('vacation')} style={[s.tab, activeTab === 'vacation' && s.tabActive]}>
+            <Text style={[s.tabText, activeTab === 'vacation' && s.tabTextActive]}>✈️ Vacation</Text>
+          </TouchableOpacity>
+        </View>
       </LinearGradient>
 
+      {activeTab === 'vacation' ? (
+        <VacationPlanner profile={profile} wardrobe={wardrobe} />
+      ) : (
       <ScrollView contentContainerStyle={{ padding: Spacing.md, paddingBottom: 100 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {/* ── Saved outfits view ── */}
@@ -630,16 +941,22 @@ export default function OutfitsScreen() {
           </>
         )}
       </ScrollView>
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.bg },
-  header: { padding: Spacing.lg, paddingBottom: 14 },
+  header: { padding: Spacing.lg, paddingBottom: 0 },
   headerTitle: { fontSize: 20, fontWeight: '700', color: Colors.text, letterSpacing: 0.5 },
   headerSub: { fontSize: 11, color: Colors.text2, marginTop: 3 },
   savedToggle: { padding: 8, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.bg3 },
+  tabBar: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
+  tab: { flex: 1, paddingVertical: 11, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabActive: { borderBottomColor: Colors.accent2 },
+  tabText: { fontSize: 13, fontWeight: '600', color: Colors.text3 },
+  tabTextActive: { color: Colors.accent2 },
   sectionLabel: { fontSize: 11, fontWeight: '700', color: Colors.text2, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
   coupleToggle: { flexDirection:'row', alignItems:'center', padding:14, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, backgroundColor:Colors.bg3, marginBottom:20 },
   coupleToggleActive: { borderColor:Colors.accent2, backgroundColor:'rgba(29,78,216,0.1)' },
