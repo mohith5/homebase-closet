@@ -9,33 +9,19 @@ import { Colors } from '../theme';
 
 const Tab = createBottomTabNavigator();
 
-// Clean geometric icons — no emoji
-const ICONS = {
-  Wardrobe: {
-    active:   '▣',  // filled grid
-    inactive: '▢',
-    label: 'Wardrobe',
-  },
-  Outfits: {
-    active:   '✦',
-    inactive: '✧',
-    label: 'Stylie',
-  },
-  Profile: {
-    active:   '◉',
-    inactive: '○',
-    label: 'Profile',
-  },
+const TABS = {
+  Wardrobe: { label: 'Wardrobe', icon: '⊟', iconActive: '⊞' },
+  Outfits:  { label: 'Stylie',   icon: '◇',  iconActive: '◆' },
+  Profile:  { label: 'Profile',  icon: '○',  iconActive: '●' },
 };
 
 function TabIcon({ name, focused }) {
-  const icon = ICONS[name];
+  const t = TABS[name];
   return (
-    <View style={styles.iconWrap}>
+    <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
       <Text style={[styles.icon, focused && styles.iconActive]}>
-        {focused ? icon.active : icon.inactive}
+        {focused ? t.iconActive : t.icon}
       </Text>
-      {focused && <View style={styles.dot} />}
     </View>
   );
 }
@@ -49,18 +35,16 @@ export default function AppNavigator() {
           tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
           tabBarLabel: ({ focused }) => (
             <Text style={[styles.label, focused && styles.labelActive]}>
-              {ICONS[route.name]?.label || route.name}
+              {TABS[route.name]?.label || route.name}
             </Text>
           ),
           tabBarStyle: styles.tabBar,
-          tabBarActiveTintColor: Colors.accent2,
-          tabBarInactiveTintColor: Colors.text3,
           tabBarHideOnKeyboard: true,
         })}
       >
         <Tab.Screen name="Wardrobe" component={WardrobeScreen} />
-        <Tab.Screen name="Outfits" component={OutfitsScreen} />
-        <Tab.Screen name="Profile" component={ProfileScreen} />
+        <Tab.Screen name="Outfits"  component={OutfitsScreen} />
+        <Tab.Screen name="Profile"  component={ProfileScreen} />
       </Tab.Navigator>
     </NavigationContainer>
   );
@@ -68,39 +52,35 @@ export default function AppNavigator() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: 'rgba(8,12,20,0.98)',
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: Colors.tabBar,
+    borderTopColor: Colors.border,
     borderTopWidth: 1,
-    height: 72,
+    height: 74,
     paddingBottom: 10,
-    paddingTop: 8,
+    paddingTop: 6,
   },
   iconWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
+    width: 40, height: 32,
+    borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  iconWrapActive: {
+    backgroundColor: Colors.accentBg,
   },
   icon: {
-    fontSize: 18,
+    fontSize: 20,
     color: Colors.text3,
-    lineHeight: 22,
+    lineHeight: 24,
   },
   iconActive: {
     color: Colors.accent2,
   },
-  dot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: Colors.accent2,
-    marginTop: 1,
-  },
   label: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
     color: Colors.text3,
-    letterSpacing: 0.3,
-    marginTop: -2,
+    letterSpacing: 0.2,
+    marginTop: 2,
   },
   labelActive: {
     color: Colors.accent2,

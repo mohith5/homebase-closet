@@ -1,28 +1,33 @@
+// Design system — inspired by Depop, Lyst, ASOS dark-light hybrid
+// Warm charcoal bg, high contrast text, electric accent — feels premium not gloomy
 export const Colors = {
-  bg:        '#07090f',
-  bg2:       '#0a0e1a',
-  bg3:       'rgba(255,255,255,0.03)',
-  border:    'rgba(255,255,255,0.07)',
-  text:      '#e8edf5',
-  text2:     '#8b95a8',
-  text3:     '#3d4a5c',
-  card:      '#0d1220',
-  accent:    '#1d4ed8',
-  accent2:   '#7dd3fc',
-  purple:    '#6d28d9',
-  success:   '#34d399',
-  error:     '#f87171',
-  warning:   '#fbbf24',
-  overlay:   'rgba(0,0,0,0.8)',
-  inpBg:     'rgba(255,255,255,0.04)',
-  inpBorder: 'rgba(255,255,255,0.08)',
+  bg:        '#111318',   // warm dark, not pure black
+  bg2:       '#181c24',
+  bg3:       '#1e2330',
+  border:    'rgba(255,255,255,0.09)',
+  text:      '#f0f2f5',   // near-white, warm
+  text2:     '#9aa3b2',
+  text3:     '#5a6478',
+  card:      '#181c24',
+  cardBorder:'rgba(255,255,255,0.08)',
+  accent:    '#3b6ef8',   // electric blue
+  accent2:   '#6cb4f8',   // lighter blue
+  accentBg:  'rgba(59,110,248,0.12)',
+  purple:    '#7c5fe6',
+  success:   '#3ecf8e',
+  error:     '#f76b6b',
+  warning:   '#f5a623',
+  overlay:   'rgba(0,0,0,0.75)',
+  inpBg:     'rgba(255,255,255,0.06)',
+  inpBorder: 'rgba(255,255,255,0.1)',
+  tabBar:    'rgba(14,17,24,0.97)',
 };
 
 export const Gradients = {
-  header:  ['#07090f', '#0a0f1e'],
-  accent:  ['#1d4ed8', '#6d28d9'],
-  purple:  ['#6d28d9', '#4f46e5'],
-  card:    ['#0d1220', '#090d18'],
+  header:  ['#111318', '#181c28'],
+  accent:  ['#3b6ef8', '#7c5fe6'],
+  blue:    ['#3b6ef8', '#2250d4'],
+  card:    ['#181c24', '#141820'],
 };
 
 export const Spacing = {
@@ -34,28 +39,28 @@ export const Radius = {
 };
 
 export const Typography = {
-  h1: { fontSize: 28, fontWeight: '700', color: '#e8edf5', letterSpacing: -0.8 },
-  h2: { fontSize: 22, fontWeight: '700', color: '#e8edf5', letterSpacing: -0.4 },
-  h3: { fontSize: 17, fontWeight: '600', color: '#e8edf5' },
-  body: { fontSize: 14, color: '#e8edf5', lineHeight: 22 },
-  caption: { fontSize: 12, color: '#8b95a8' },
-  micro: { fontSize: 10, color: '#3d4a5c', letterSpacing: 0.5 },
-  label: { fontSize: 10, fontWeight: '700', color: '#3d4a5c', textTransform: 'uppercase', letterSpacing: 1 },
+  h1:      { fontSize: 30, fontWeight: '700', color: '#f0f2f5', letterSpacing: -0.8 },
+  h2:      { fontSize: 24, fontWeight: '700', color: '#f0f2f5', letterSpacing: -0.4 },
+  h3:      { fontSize: 18, fontWeight: '600', color: '#f0f2f5' },
+  body:    { fontSize: 15, color: '#f0f2f5', lineHeight: 22 },
+  caption: { fontSize: 13, color: '#9aa3b2' },
+  micro:   { fontSize: 11, color: '#5a6478', letterSpacing: 0.4 },
+  label:   { fontSize: 11, fontWeight: '700', color: '#5a6478', textTransform: 'uppercase', letterSpacing: 1.2 },
 };
 
 export const Shadow = {
   card: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 6,
   },
   fab: {
-    shadowColor: '#1d4ed8',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
-    elevation: 14,
+    shadowColor: '#3b6ef8',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 16,
   },
 };

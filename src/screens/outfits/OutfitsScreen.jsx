@@ -204,6 +204,9 @@ const ww = StyleSheet.create({
 const TRIP_ACTIVITIES = ['Sightseeing','Fine Dining','Business Meetings','Beach','Clubbing/Nightlife','Museums/Culture','Hiking/Outdoors','Shopping','Casual Cafes','Theatre/Opera','Spa/Wellness','Sports Events'];
 
 // ── Vacation Planner ──────────────────────────────────────────
+export function VacationPlannerExport({ profile, wardrobe }) {
+  return <VacationPlanner profile={profile} wardrobe={wardrobe} />;
+}
 function VacationPlanner({ profile, wardrobe }) {
   const [destination, setDestination] = useState('');
   const [startDate, setStartDate] = useState('');

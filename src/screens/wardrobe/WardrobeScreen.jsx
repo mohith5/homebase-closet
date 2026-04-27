@@ -24,16 +24,17 @@ const OCCASIONS  = ['Work/Office','Date Night','Weekend Casual','Formal/Event','
 const SEASONS    = ['Spring','Summer','Fall','Winter'];
 const COLORS     = ['Black','White','Gray','Navy','Blue','Light Blue','Green','Olive','Khaki','Beige','Brown','Burgundy','Red','Pink','Purple','Yellow','Orange','Multicolor','Pattern'];
 const FITS       = ['Slim','Regular','Loose','Oversized','Tailored'];
-const CATEGORY_ICONS = {
-  Tops:'👕', Bottoms:'👖', Dresses:'👗', Outerwear:'🧥', Shoes:'👟',
-  Jewelry:'💎', Watches:'⌚', Bags:'👜', Hats:'🧢', Belts:'🪢',
-  Sunglasses:'🕶', Activewear:'🏃', Swimwear:'🩱', Loungewear:'🩳',
+// Category short codes shown in sidebar dots and empty card placeholder
+const CAT_SHORT = {
+  Tops:'TOP', Bottoms:'BTM', Dresses:'DRS', Outerwear:'OTR', Shoes:'SHO',
+  Jewelry:'JWL', Watches:'WCH', Bags:'BAG', Hats:'HAT', Belts:'BLT',
+  Sunglasses:'SNG', Activewear:'ACT', Swimwear:'SWM', Loungewear:'LNG',
 };
 
 const W = Dimensions.get('window').width;
-const SIDEBAR_COLLAPSED = 44;  // icon-only
-const SIDEBAR_EXPANDED  = 130; // icon + label (HomeBase style)
-function cardWidth(sidebarW) { return (W - sidebarW - 20) / 2; }
+const SIDEBAR_COLLAPSED = 52;
+const SIDEBAR_EXPANDED  = 148;
+const CARD_IMG_H = 180; // explicit px height — works with absolute grid
 
 function emptyForm(defaults = {}) {
   return { name:'', category:'Tops', color:'Black', colors:[], material:'', fit:'Regular', occasions:[], seasons:[], brand:'', notes:'', ...defaults };
@@ -590,36 +591,37 @@ export default function WardrobeScreen() {
   const [showUpload, setShowUpload] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [activeSection, setActiveSection] = useState('wardrobe');
+  const [showVacation, setShowVacation] = useState(false);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const sidebarAnim = useRef(new Animated.Value(SIDEBAR_COLLAPSED)).current;
+  const currentW = useRef(SIDEBAR_COLLAPSED);
+
+  // keep currentW in sync so PanResponder can read it without stale closure
+  sidebarAnim.addListener(({ value }) => { currentW.current = value; });
 
   function toggleSidebar() {
-    const toVal = sidebarExpanded ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED;
-    setSidebarExpanded(v => !v);
-    Animated.spring(sidebarAnim, { toValue: toVal, useNativeDriver: false, tension: 120, friction: 14 }).start();
+    const toVal = currentW.current > (SIDEBAR_COLLAPSED + SIDEBAR_EXPANDED) / 2
+      ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED;
+    setSidebarExpanded(toVal === SIDEBAR_EXPANDED);
+    Animated.spring(sidebarAnim, { toValue: toVal, useNativeDriver: false, tension: 140, friction: 16 }).start();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
-  // Drag the sidebar edge to resize
-  const dragStartX = useRef(0);
-  const dragStartW = useRef(SIDEBAR_COLLAPSED);
   const panResponder = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onPanResponderGrant: (_, gs) => {
-      dragStartX.current = gs.x0;
-      dragStartW.current = sidebarAnim._value;
-    },
+    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 4,
+    onPanResponderGrant: () => {},
     onPanResponderMove: (_, gs) => {
-      const newW = Math.min(SIDEBAR_EXPANDED, Math.max(SIDEBAR_COLLAPSED, dragStartW.current + gs.dx));
+      const newW = Math.min(SIDEBAR_EXPANDED + 20, Math.max(SIDEBAR_COLLAPSED - 10, currentW.current + gs.dx));
       sidebarAnim.setValue(newW);
     },
-    onPanResponderRelease: (_, gs) => {
-      const newW = dragStartW.current + gs.dx;
-      const snapTo = newW > (SIDEBAR_COLLAPSED + SIDEBAR_EXPANDED) / 2 ? SIDEBAR_EXPANDED : SIDEBAR_COLLAPSED;
+    onPanResponderRelease: () => {
+      const snapTo = currentW.current > (SIDEBAR_COLLAPSED + SIDEBAR_EXPANDED) / 2
+        ? SIDEBAR_EXPANDED : SIDEBAR_COLLAPSED;
       setSidebarExpanded(snapTo === SIDEBAR_EXPANDED);
-      Animated.spring(sidebarAnim, { toValue: snapTo, useNativeDriver: false, tension: 120, friction: 14 }).start();
+      Animated.spring(sidebarAnim, { toValue: snapTo, useNativeDriver: false, tension: 140, friction: 16 }).start();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     },
   })).current;
@@ -634,16 +636,14 @@ export default function WardrobeScreen() {
       .order('created_at', { ascending: false });
     if (error) { Logger.error('Wardrobe', 'Load failed', error); }
     else {
-      // Generate signed URLs for all items that have a storage path
+      // Generate signed URLs — 7 day TTL so they don't expire mid-session
       const withUrls = await Promise.all((data || []).map(async item => {
         if (!item.photo_url) return item;
-        // Already a full URL (http) — use as-is
         if (item.photo_url.startsWith('http')) return item;
-        // Storage path — get signed URL
         const { data: signed } = await supabase.storage
           .from('closet')
-          .createSignedUrl(item.photo_url, 3600);
-        return { ...item, photo_url: signed?.signedUrl || null };
+          .createSignedUrl(item.photo_url, 60 * 60 * 24 * 7); // 7 days
+        return { ...item, _storagePath: item.photo_url, photo_url: signed?.signedUrl || null };
       }));
       setWardrobe(withUrls);
     }
@@ -669,7 +669,7 @@ export default function WardrobeScreen() {
     let itemWithUrl = updated;
     if (updated.photo_url && !updated.photo_url.startsWith('http')) {
       const { data: signed } = await supabase.storage
-        .from('closet').createSignedUrl(updated.photo_url, 3600);
+        .from('closet').createSignedUrl(updated.photo_url, 60 * 60 * 24 * 7);
       itemWithUrl = { ...updated, photo_url: signed?.signedUrl || null };
     }
     if (editingItem) {
@@ -702,98 +702,127 @@ export default function WardrobeScreen() {
   const renderItem = useCallback(({ item }) => (
     <TouchableOpacity
       style={ws.itemCard}
-      activeOpacity={0.8}
+      activeOpacity={0.78}
       onPress={() => setEditingItem(item)}
       onLongPress={() => deleteItem(item.id)}
     >
       {item.photo_url
-        ? <Image source={{ uri: item.photo_url }} style={ws.itemPhoto} resizeMode="cover" />
+        ? <Image
+            source={{ uri: item.photo_url }}
+            style={ws.itemPhoto}
+            resizeMode="cover"
+            onError={() => {
+              // URL expired — re-sign on the fly
+              if (item._storagePath) {
+                supabase.storage.from('closet')
+                  .createSignedUrl(item._storagePath, 60 * 60 * 24 * 7)
+                  .then(({ data }) => {
+                    if (data?.signedUrl) {
+                      setWardrobe(prev => prev.map(w =>
+                        w.id === item.id ? { ...w, photo_url: data.signedUrl } : w
+                      ));
+                    }
+                  });
+              }
+            }}
+          />
         : <View style={ws.itemIconBox}>
-            {/* Category initial — clean, no emoji */}
-            <Text style={{ fontSize: 28, fontWeight: '200', color: Colors.text3, letterSpacing: -1 }}>
-              {item.category?.[0] || '?'}
-            </Text>
+            <Text style={ws.itemIconText}>{CAT_SHORT[item.category] || '—'}</Text>
             <Text style={ws.itemCategoryLabel}>{item.category}</Text>
           </View>
       }
       <View style={ws.itemInfo}>
-        <Text style={ws.itemName} numberOfLines={2}>{item.name || item.category}</Text>
-        <Text style={ws.itemMeta} numberOfLines={1}>
-          {[item.color, item.brand].filter(Boolean).join(' · ')}
-        </Text>
+        <Text style={ws.itemName} numberOfLines={1}>{item.name || item.category}</Text>
+        {(item.brand || item.color) ? (
+          <Text style={ws.itemMeta} numberOfLines={1}>
+            {[item.brand, item.color].filter(Boolean).join(' · ')}
+          </Text>
+        ) : null}
       </View>
-      <View style={ws.itemEditDot} />
     </TouchableOpacity>
   ), [wardrobe]);
 
+  // import VacationPlanner from outfits screen — lazy via modal
+  const [showVacation, setShowVacation] = useState(false);
+
   return (
     <View style={ws.screen}>
-      {/* Header */}
-      <LinearGradient colors={['#080c14','#0f1729']} style={[ws.header, { paddingTop: insets.top + 12 }]}>
-        <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-end' }}>
+      {/* ── Header ── */}
+      <View style={[ws.header, { paddingTop: insets.top + 10 }]}>
+        <View style={ws.headerRow}>
           <View>
-            <Text style={ws.headerEyebrow}>{profile?.display_name || 'My'} Wardrobe</Text>
-            <Text style={ws.headerTitle}>Closet</Text>
+            <Text style={ws.headerSub}>{profile?.display_name || 'My'} Closet</Text>
+            <Text style={ws.headerTitle}>Wardrobe</Text>
           </View>
-          <View style={ws.headerBadge}>
-            <Text style={ws.headerBadgeNum}>{wardrobe.length}</Text>
-            <Text style={ws.headerBadgeLabel}>items</Text>
+          <View style={ws.headerCount}>
+            <Text style={ws.headerCountNum}>{wardrobe.length}</Text>
+            <Text style={ws.headerCountLabel}>pieces</Text>
           </View>
         </View>
-
-        {/* Search */}
         <View style={ws.searchBox}>
           <Text style={ws.searchIcon}>⌕</Text>
           <TextInput
             style={ws.searchInput}
             value={search}
             onChangeText={setSearch}
-            placeholder="Search name, brand, color..."
+            placeholder="Search brand, color, name..."
             placeholderTextColor={Colors.text3}
           />
           {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')} style={ws.searchClear}>
-              <Text style={{ color:Colors.text3, fontSize:16, lineHeight:18 }}>×</Text>
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <Text style={{ color:Colors.text3, fontSize:18 }}>×</Text>
             </TouchableOpacity>
           )}
         </View>
-      </LinearGradient>
+      </View>
 
-      {/* Main layout: animated left sidebar + right grid */}
+      {/* ── Main: sidebar + content ── */}
       <View style={ws.body}>
-        {/* Animated sidebar */}
+
+        {/* Sidebar */}
         <Animated.View style={[ws.sidebar, { width: sidebarAnim }]}>
-          {/* Collapse/expand toggle */}
           <TouchableOpacity onPress={toggleSidebar} style={ws.sideToggle} activeOpacity={0.6}>
             <Text style={ws.sideToggleIcon}>{sidebarExpanded ? '‹' : '›'}</Text>
           </TouchableOpacity>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 160 }}>
+            {/* Vacation tab */}
+            <TouchableOpacity
+              onPress={() => { setShowVacation(true); Haptics.selectionAsync(); }}
+              style={ws.sideTab}
+              activeOpacity={0.65}
+            >
+              <View style={[ws.sideTabDot, ws.sideTabDotVacation]}>
+                <Text style={[ws.sideTabDotText, { color: Colors.warning }]}>✈</Text>
+              </View>
+              {sidebarExpanded && (
+                <Text style={[ws.sideTabLabel, { color: Colors.warning, fontWeight: '700' }]} numberOfLines={1}>Vacation</Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={ws.sideDivider} />
+
+            {/* Category filters */}
             {['All', ...CATEGORIES].map(c => {
-              const active = filter === c;
+              const active = activeSection === 'wardrobe' && filter === c;
               const count = c === 'All' ? wardrobe.length : wardrobe.filter(i => i.category === c).length;
               if (!sidebarExpanded && count === 0 && c !== 'All') return null;
               return (
                 <TouchableOpacity
                   key={c}
-                  onPress={() => { setFilter(c); Haptics.selectionAsync(); }}
+                  onPress={() => { setActiveSection('wardrobe'); setFilter(c); Haptics.selectionAsync(); }}
                   style={[ws.sideTab, active && ws.sideTabActive]}
                   activeOpacity={0.65}
                 >
-                  {/* Category initial letter as icon — clean, no emoji */}
                   <View style={[ws.sideTabDot, active && ws.sideTabDotActive]}>
                     <Text style={[ws.sideTabDotText, active && ws.sideTabDotTextActive]}>
-                      {c === 'All' ? '✦' : c[0]}
+                      {c === 'All' ? '◆' : (CAT_SHORT[c]?.[0] || c[0])}
                     </Text>
                   </View>
                   {sidebarExpanded && (
                     <>
-                      <Text style={[ws.sideTabLabel, active && ws.sideTabLabelActive]} numberOfLines={1}>
-                        {c}
-                      </Text>
-                      {count > 0 && (
-                        <Text style={[ws.sideTabCount, active && ws.sideTabCountActive]}>{count}</Text>
-                      )}
+                      <Text style={[ws.sideTabLabel, active && ws.sideTabLabelActive]} numberOfLines={1}>{c}</Text>
+                      {count > 0 && <Text style={[ws.sideTabCount, active && ws.sideTabCountActive]}>{count}</Text>}
                     </>
                   )}
                 </TouchableOpacity>
@@ -802,29 +831,29 @@ export default function WardrobeScreen() {
           </ScrollView>
         </Animated.View>
 
-        {/* Drag handle */}
-        <Animated.View style={[ws.dragHandle, { left: Animated.subtract(sidebarAnim, 7) }]} {...panResponder.panHandlers}>
+        {/* Drag handle — grab to freely resize */}
+        <Animated.View
+          style={[ws.dragHandle, { left: Animated.subtract(sidebarAnim, 8) }]}
+          {...panResponder.panHandlers}
+        >
           <View style={ws.dragPill} />
         </Animated.View>
 
-        {/* Grid */}
-        <Animated.View style={[ws.gridArea, { marginLeft: sidebarAnim }]}>
+        {/* Content area */}
+        <Animated.View style={[ws.gridArea, { left: sidebarAnim }]}>
           {loading
             ? <ActivityIndicator color={Colors.accent2} style={{ marginTop: 80 }} size="large" />
             : filtered.length === 0
               ? <View style={ws.empty}>
-                  <View style={ws.emptyIcon}><Text style={{ fontSize: 28, color: Colors.text3 }}>▢</Text></View>
-                  <Text style={ws.emptyTitle}>
-                    {wardrobe.length === 0 ? 'Empty Wardrobe' : 'No Results'}
-                  </Text>
+                  <Text style={ws.emptyTitle}>{wardrobe.length === 0 ? 'Your closet is empty' : 'Nothing here'}</Text>
                   <Text style={ws.emptyText}>
                     {wardrobe.length === 0
-                      ? 'Upload outfit photos or add items manually to build your digital closet.'
-                      : 'No items match your search or filter.'}
+                      ? 'Upload outfit photos or tap + Add to get started.'
+                      : 'No items match this filter.'}
                   </Text>
                   {wardrobe.length === 0 && (
-                    <TouchableOpacity onPress={() => setShowUpload(true)} style={ws.emptyAction}>
-                      <Text style={ws.emptyActionText}>Upload Photos</Text>
+                    <TouchableOpacity onPress={() => setShowUpload(true)} style={ws.emptyBtn}>
+                      <Text style={ws.emptyBtnText}>Upload Photos</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -833,8 +862,8 @@ export default function WardrobeScreen() {
                   keyExtractor={i => i.id}
                   renderItem={renderItem}
                   numColumns={2}
-                  key="grid-2"
-                  contentContainerStyle={{ padding: 10, paddingBottom: 140 }}
+                  key="grid2"
+                  contentContainerStyle={{ padding: 10, paddingBottom: 150 }}
                   columnWrapperStyle={{ gap: 10 }}
                   ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
                   showsVerticalScrollIndicator={false}
@@ -843,17 +872,32 @@ export default function WardrobeScreen() {
         </Animated.View>
       </View>
 
-      {/* FABs — pinned above tab bar */}
-      <View style={[ws.fabGroup, { bottom: insets.bottom + 84 }]}>
+      {/* FABs — sit exactly above tab bar using insets */}
+      <View style={[ws.fabGroup, { bottom: insets.bottom + 80 }]}>
         <TouchableOpacity onPress={() => setShowAdd(true)} style={ws.fabSecondary} activeOpacity={0.8}>
           <Text style={ws.fabSecondaryText}>+ Add</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setShowUpload(true)} activeOpacity={0.85}>
-          <LinearGradient colors={['#1d4ed8','#6d28d9']} style={ws.fab} start={{x:0,y:0}} end={{x:1,y:1}}>
+          <LinearGradient colors={Gradients.accent} style={ws.fab} start={{x:0,y:0}} end={{x:1,y:1}}>
             <Text style={ws.fabIcon}>⊕</Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
+
+      {/* Vacation Planner Modal */}
+      <Modal visible={showVacation} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowVacation(false)}>
+        <View style={{ flex:1, backgroundColor:Colors.bg }}>
+          <View style={ws.modalHeader}>
+            <TouchableOpacity onPress={() => setShowVacation(false)} style={ws.modalClose}>
+              <Text style={ws.modalCloseText}>Close</Text>
+            </TouchableOpacity>
+            <Text style={ws.modalTitle}>✈ Vacation Stylist</Text>
+            <View style={{ width: 60 }} />
+          </View>
+          {/* Lazy import VacationPlanner from outfits */}
+          <VacationPlannerInline profile={profile} wardrobe={wardrobe} />
+        </View>
+      </Modal>
 
       {/* Upload Modal */}
       <Modal visible={showUpload} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowUpload(false)}>
@@ -865,19 +909,12 @@ export default function WardrobeScreen() {
             <Text style={ws.modalTitle}>Smart Scan</Text>
             <View style={{ width: 60 }} />
           </View>
-          <UploadSheet
-            profile={profile}
-            householdId={householdId}
-            onClose={() => setShowUpload(false)}
-            onItemsSaved={(items) => {
-              items.forEach(i => addWardrobeItem(i));
-              showToast(`${items.length} items saved`);
-            }}
-          />
+          <UploadSheet profile={profile} householdId={householdId} onClose={() => setShowUpload(false)}
+            onItemsSaved={(items) => { items.forEach(i => addWardrobeItem(i)); showToast(`${items.length} items saved`); }} />
         </View>
       </Modal>
 
-      {/* Manual Add Modal */}
+      {/* Add Item Modal */}
       <Modal visible={showAdd} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowAdd(false)}>
         <View style={{ flex:1, backgroundColor:Colors.bg }}>
           <View style={ws.modalHeader}>
@@ -887,12 +924,8 @@ export default function WardrobeScreen() {
             <Text style={ws.modalTitle}>Add Item</Text>
             <View style={{ width: 60 }} />
           </View>
-          <ItemModal
-            profile={profile}
-            householdId={householdId}
-            onClose={() => setShowAdd(false)}
-            onSaved={(item) => { addWardrobeItem(item); showToast('Item added'); }}
-          />
+          <ItemModal profile={profile} householdId={householdId} onClose={() => setShowAdd(false)}
+            onSaved={(item) => { addWardrobeItem(item); showToast('Item added'); }} />
         </View>
       </Modal>
 
@@ -904,101 +937,115 @@ export default function WardrobeScreen() {
               <Text style={ws.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
             <Text style={ws.modalTitle}>Edit Item</Text>
-            <TouchableOpacity onPress={() => {
+            <TouchableOpacity style={ws.modalClose} onPress={() => {
               const item = editingItem;
-              if (!item) return;
-              Alert.alert('Delete Item', `Remove "${item.name || item.category}" from your wardrobe?`, [
+              Alert.alert('Remove Item', `Delete "${item.name || item.category}"?`, [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Delete', style: 'destructive', onPress: async () => {
                   await supabase.from('wardrobe_items').delete().eq('id', item.id);
                   removeWardrobeItem(item.id);
                   setEditingItem(null);
-                  showToast('Item removed');
-                }}
+                  showToast('Removed');
+                }},
               ]);
-            }} style={ws.modalClose}>
+            }}>
               <Text style={[ws.modalCloseText, { color: Colors.error }]}>Delete</Text>
             </TouchableOpacity>
           </View>
-          {editingItem && (
-            <ItemModal
-              profile={profile}
-              householdId={householdId}
-              existingItem={editingItem}
-              onClose={() => setEditingItem(null)}
-              onSaved={handleItemSaved}
-            />
-          )}
+          {editingItem && <ItemModal profile={profile} householdId={householdId}
+            existingItem={editingItem} onClose={() => setEditingItem(null)} onSaved={handleItemSaved} />}
         </View>
       </Modal>
     </View>
   );
 }
 
+// Lazy-loaded wrapper — avoids circular import at module init time
+function VacationPlannerInline({ profile, wardrobe }) {
+  const [Planner, setPlanner] = useState(null);
+  useEffect(() => {
+    import('../outfits/OutfitsScreen')
+      .then(m => { if (m.VacationPlannerExport) setPlanner(() => m.VacationPlannerExport); })
+      .catch(() => {});
+  }, []);
+  if (!Planner) return (
+    <View style={{ flex:1, alignItems:'center', justifyContent:'center', padding: 40 }}>
+      <ActivityIndicator color={Colors.accent2} />
+    </View>
+  );
+  return <Planner profile={profile} wardrobe={wardrobe} />;
+}
+
 const ws = StyleSheet.create({
-  screen: { flex:1, backgroundColor:Colors.bg },
+  screen: { flex:1, backgroundColor: Colors.bg },
 
   // Header
-  header: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md },
-  headerEyebrow: { fontSize: 11, fontWeight: '600', color: Colors.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 2 },
-  headerTitle: { fontSize: 28, fontWeight: '700', color: Colors.text, letterSpacing: -0.5 },
-  headerBadge: { alignItems: 'center', backgroundColor: 'rgba(29,78,216,0.15)', borderWidth: 1, borderColor: 'rgba(29,78,216,0.3)', borderRadius: Radius.md, paddingHorizontal: 12, paddingVertical: 6 },
-  headerBadgeNum: { fontSize: 18, fontWeight: '700', color: Colors.accent2, lineHeight: 22 },
-  headerBadgeLabel: { fontSize: 9, color: Colors.text3, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  header: { paddingHorizontal: Spacing.lg, paddingBottom: 12, backgroundColor: Colors.bg },
+  headerRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-end', marginBottom: 14 },
+  headerSub: { fontSize: 12, fontWeight: '600', color: Colors.text3, letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: 3 },
+  headerTitle: { fontSize: 32, fontWeight: '800', color: Colors.text, letterSpacing: -1 },
+  headerCount: { alignItems: 'center', backgroundColor: Colors.accentBg, borderWidth: 1, borderColor: 'rgba(59,110,248,0.25)', borderRadius: Radius.lg, paddingHorizontal: 14, paddingVertical: 8 },
+  headerCountNum: { fontSize: 22, fontWeight: '800', color: Colors.accent2, lineHeight: 26 },
+  headerCountLabel: { fontSize: 10, color: Colors.text3, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 },
+  searchRow: {},
+  searchBox: { flexDirection:'row', alignItems:'center', backgroundColor: Colors.bg3, borderWidth:1, borderColor: Colors.border, borderRadius: Radius.lg, paddingHorizontal: 14, paddingVertical: 11, gap: 8 },
+  searchIcon: { fontSize: 17, color: Colors.text3 },
+  searchInput: { flex:1, fontSize: 15, color: Colors.text },
 
   // Search — inside header
   searchBox: { flexDirection:'row', alignItems:'center', backgroundColor:'rgba(255,255,255,0.05)', borderWidth:1, borderColor:'rgba(255,255,255,0.08)', borderRadius: Radius.md, paddingHorizontal:14, paddingVertical:10, gap:8, marginTop: Spacing.md },
-  searchIcon: { fontSize: 18, color: Colors.text3 },
-  searchInput: { flex:1, fontSize:14, color:Colors.text },
-  searchClear: { padding: 2 },
-
-  // Body / sidebar
+  // Body + sidebar
   body: { flex:1, position:'relative' },
-  sidebar: { position:'absolute', top:0, bottom:0, left:0, backgroundColor: '#0a0e1a', borderRightWidth:1, borderRightColor:'rgba(255,255,255,0.05)', zIndex:10, overflow:'hidden' },
-  sideToggle: { alignItems:'center', justifyContent:'center', paddingVertical: 12, borderBottomWidth:1, borderBottomColor:'rgba(255,255,255,0.05)' },
-  sideToggleIcon: { fontSize: 16, color: Colors.text3, fontWeight: '300' },
-  sideTab: { flexDirection:'row', alignItems:'center', paddingVertical: 9, paddingHorizontal: 10, borderLeftWidth: 2, borderLeftColor:'transparent', gap: 8 },
-  sideTabActive: { backgroundColor:'rgba(29,78,216,0.12)', borderLeftColor: Colors.accent2 },
-  sideTabDot: { width: 22, height: 22, borderRadius: 6, backgroundColor:'rgba(255,255,255,0.05)', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', alignItems:'center', justifyContent:'center', flexShrink: 0 },
-  sideTabDotActive: { backgroundColor:'rgba(29,78,216,0.25)', borderColor:'rgba(125,211,252,0.3)' },
-  sideTabDotText: { fontSize: 9, fontWeight: '700', color: Colors.text3 },
+  sidebar: { position:'absolute', top:0, bottom:0, left:0, backgroundColor: Colors.bg2, borderRightWidth:1, borderRightColor: Colors.border, zIndex:10, overflow:'hidden' },
+  sideToggle: { alignItems:'center', justifyContent:'center', paddingVertical: 11, borderBottomWidth:1, borderBottomColor: Colors.border },
+  sideToggleIcon: { fontSize: 15, color: Colors.text3 },
+
+  sideTab: { flexDirection:'row', alignItems:'center', paddingVertical: 10, paddingHorizontal: 10, borderLeftWidth: 2, borderLeftColor:'transparent', gap: 8 },
+  sideTabActive: { backgroundColor: Colors.accentBg, borderLeftColor: Colors.accent },
+  sideTabVacation: { borderLeftColor: 'transparent' },
+  sideDivider: { height: 1, backgroundColor: Colors.border, marginVertical: 6, marginHorizontal: 8 },
+
+  sideTabDot: { width: 26, height: 26, borderRadius: 7, backgroundColor: Colors.bg3, borderWidth:1, borderColor: Colors.border, alignItems:'center', justifyContent:'center', flexShrink: 0 },
+  sideTabDotActive: { backgroundColor: Colors.accentBg, borderColor: Colors.accent2 },
+  sideTabDotVacation: { backgroundColor: 'rgba(245,166,35,0.12)', borderColor: 'rgba(245,166,35,0.3)' },
+  sideTabDotText: { fontSize: 10, fontWeight: '700', color: Colors.text3 },
   sideTabDotTextActive: { color: Colors.accent2 },
-  sideTabLabel: { fontSize: 12, color: Colors.text3, fontWeight: '500', flex: 1 },
+  sideTabLabel: { fontSize: 13, color: Colors.text2, fontWeight: '500', flex: 1 },
   sideTabLabelActive: { color: Colors.accent2, fontWeight: '700' },
   sideTabCount: { fontSize: 10, color: Colors.text3, fontWeight: '600' },
   sideTabCountActive: { color: Colors.accent2 },
-  dragHandle: { position:'absolute', top:0, bottom:0, width:14, zIndex:20, justifyContent:'center', alignItems:'center' },
-  dragPill: { width:3, height:36, backgroundColor:'rgba(255,255,255,0.1)', borderRadius:2 },
+
+  dragHandle: { position:'absolute', top:0, bottom:0, width:16, zIndex:20, justifyContent:'center', alignItems:'center' },
+  dragPill: { width:4, height:44, backgroundColor: Colors.border, borderRadius:2 },
 
   // Grid
   gridArea: { position:'absolute', top:0, right:0, bottom:0 },
-  itemCard: { flex:1, backgroundColor:'#0d1220', borderRadius: Radius.lg, borderWidth:1, borderColor:'rgba(255,255,255,0.06)', overflow:'hidden', ...Shadow.card },
-  itemPhoto: { width:'100%', aspectRatio: 0.85 },
-  itemIconBox: { aspectRatio: 0.85, backgroundColor:'#111827', alignItems:'center', justifyContent:'center' },
-  itemCategoryLabel: { fontSize: 11, color: Colors.text3, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase', marginTop: 6 },
-  itemInfo: { padding: 10, paddingTop: 8 },
-  itemName: { fontSize: 12, fontWeight: '600', color: Colors.text, marginBottom: 2, lineHeight: 16 },
-  itemMeta: { fontSize: 10, color: Colors.text3 },
-  itemEditDot: { position:'absolute', top: 8, right: 8, width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accent2, opacity: 0.5 },
+  itemCard: { flex:1, backgroundColor: Colors.card, borderRadius: Radius.lg, borderWidth:1, borderColor: Colors.cardBorder, overflow:'hidden', ...Shadow.card },
+  itemPhoto: { width:'100%', height: CARD_IMG_H },
+  itemIconBox: { width:'100%', height: CARD_IMG_H, backgroundColor: Colors.bg3, alignItems:'center', justifyContent:'center', gap: 6 },
+  itemIconText: { fontSize: 16, fontWeight: '700', color: Colors.text3, letterSpacing: 1.5 },
+  itemCategoryLabel: { fontSize: 10, color: Colors.text3, fontWeight: '600', letterSpacing: 1, textTransform:'uppercase' },
+  itemInfo: { padding: 10 },
+  itemName: { fontSize: 13, fontWeight: '600', color: Colors.text, marginBottom: 2, lineHeight: 18 },
+  itemMeta: { fontSize: 11, color: Colors.text2 },
 
-  // Empty state
-  empty: { flex:1, alignItems:'center', justifyContent:'center', padding: 48, gap: 12 },
-  emptyIcon: { width: 64, height: 64, borderRadius: 20, backgroundColor:'rgba(255,255,255,0.04)', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', alignItems:'center', justifyContent:'center', marginBottom: 4 },
-  emptyTitle: { fontSize: 17, fontWeight: '700', color: Colors.text },
-  emptyText: { fontSize: 13, color: Colors.text3, textAlign:'center', lineHeight: 20 },
-  emptyAction: { marginTop: 8, backgroundColor:'rgba(29,78,216,0.2)', borderWidth:1, borderColor:'rgba(29,78,216,0.4)', borderRadius: Radius.full, paddingHorizontal: 20, paddingVertical: 10 },
-  emptyActionText: { color: Colors.accent2, fontSize: 13, fontWeight: '600' },
+  // Empty
+  empty: { flex:1, alignItems:'center', justifyContent:'center', padding: 40, gap: 10 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  emptyText: { fontSize: 14, color: Colors.text2, textAlign:'center', lineHeight: 21 },
+  emptyBtn: { marginTop: 10, backgroundColor: Colors.accentBg, borderWidth:1, borderColor: Colors.accent2, borderRadius: Radius.full, paddingHorizontal: 22, paddingVertical: 11 },
+  emptyBtnText: { color: Colors.accent2, fontSize: 14, fontWeight: '700' },
 
   // FABs
   fabGroup: { position:'absolute', right: 16, flexDirection:'row', alignItems:'center', gap: 10 },
-  fabSecondary: { backgroundColor:'rgba(15,21,33,0.95)', borderWidth:1, borderColor:'rgba(255,255,255,0.1)', borderRadius: Radius.full, paddingHorizontal: 18, paddingVertical: 13, ...Shadow.card },
-  fabSecondaryText: { color: Colors.text2, fontSize: 13, fontWeight: '600', letterSpacing: 0.3 },
-  fab: { width: 54, height: 54, borderRadius: 27, alignItems:'center', justifyContent:'center', ...Shadow.fab },
+  fabSecondary: { backgroundColor: Colors.bg2, borderWidth:1, borderColor: Colors.border, borderRadius: Radius.full, paddingHorizontal: 18, paddingVertical: 13, ...Shadow.card },
+  fabSecondaryText: { color: Colors.text2, fontSize: 14, fontWeight: '600' },
+  fab: { width: 56, height: 56, borderRadius: 28, alignItems:'center', justifyContent:'center', ...Shadow.fab },
   fabIcon: { fontSize: 26, color: '#fff', lineHeight: 30 },
 
-  // Modals
-  modalHeader: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth:1, borderBottomColor:'rgba(255,255,255,0.06)' },
-  modalTitle: { fontSize: 15, fontWeight: '700', color: Colors.text, letterSpacing: 0.2 },
-  modalClose: { minWidth: 60 },
-  modalCloseText: { color: Colors.accent2, fontSize: 14, fontWeight: '600' },
+  // Modal
+  modalHeader: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', paddingHorizontal: 18, paddingVertical: 15, borderBottomWidth:1, borderBottomColor: Colors.border },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: Colors.text },
+  modalClose: { minWidth: 64 },
+  modalCloseText: { color: Colors.accent2, fontSize: 15, fontWeight: '600' },
 });
