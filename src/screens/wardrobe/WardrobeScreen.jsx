@@ -11,7 +11,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
 import Logger from '../../lib/logger';
-import { analyzeClothingPhoto } from '../../lib/claude';
 import { lookupBarcode } from '../../lib/barcode';
 import { uploadPhoto, imageToBase64 } from '../../lib/storage';
 import { Pill } from '../../components/Pill';
@@ -741,9 +740,6 @@ export default function WardrobeScreen() {
       </View>
     </TouchableOpacity>
   ), [wardrobe]);
-
-  // import VacationPlanner from outfits screen — lazy via modal
-  const [showVacation, setShowVacation] = useState(false);
 
   return (
     <View style={ws.screen}>
