@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   FlatList, Image, Alert, ActivityIndicator, Modal,
-  ScrollView, Dimensions,
+  ScrollView, Dimensions, Animated, PanResponder,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -31,8 +31,9 @@ const CATEGORY_ICONS = {
 };
 
 const W = Dimensions.get('window').width;
-const SIDEBAR_W = 58;
-const CARD = (W - SIDEBAR_W - 28) / 2;
+const SIDEBAR_COLLAPSED = 44;  // icon-only
+const SIDEBAR_EXPANDED  = 130; // icon + label (HomeBase style)
+function cardWidth(sidebarW) { return (W - sidebarW - 20) / 2; }
 
 function emptyForm(defaults = {}) {
   return { name:'', category:'Tops', color:'Black', colors:[], material:'', fit:'Regular', occasions:[], seasons:[], brand:'', notes:'', ...defaults };
@@ -536,11 +537,42 @@ export default function WardrobeScreen() {
   const { wardrobe, setWardrobe, addWardrobeItem, removeWardrobeItem, showToast, householdId } = useAppStore();
   const profile = useAppStore(s => s.getActiveProfile());
   const [loading, setLoading] = useState(false);
-  const [showUpload, setShowUpload] = useState(false);  // multi-photo upload sheet
-  const [editingItem, setEditingItem] = useState(null); // item being edited
-  const [showAdd, setShowAdd] = useState(false);        // manual add sheet
+  const [showUpload, setShowUpload] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const sidebarAnim = useRef(new Animated.Value(SIDEBAR_COLLAPSED)).current;
+
+  function toggleSidebar() {
+    const toVal = sidebarExpanded ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED;
+    setSidebarExpanded(v => !v);
+    Animated.spring(sidebarAnim, { toValue: toVal, useNativeDriver: false, tension: 120, friction: 14 }).start();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+
+  // Drag the sidebar edge to resize
+  const dragStartX = useRef(0);
+  const dragStartW = useRef(SIDEBAR_COLLAPSED);
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderGrant: (_, gs) => {
+      dragStartX.current = gs.x0;
+      dragStartW.current = sidebarAnim._value;
+    },
+    onPanResponderMove: (_, gs) => {
+      const newW = Math.min(SIDEBAR_EXPANDED, Math.max(SIDEBAR_COLLAPSED, dragStartW.current + gs.dx));
+      sidebarAnim.setValue(newW);
+    },
+    onPanResponderRelease: (_, gs) => {
+      const newW = dragStartW.current + gs.dx;
+      const snapTo = newW > (SIDEBAR_COLLAPSED + SIDEBAR_EXPANDED) / 2 ? SIDEBAR_EXPANDED : SIDEBAR_COLLAPSED;
+      setSidebarExpanded(snapTo === SIDEBAR_EXPANDED);
+      Animated.spring(sidebarAnim, { toValue: snapTo, useNativeDriver: false, tension: 120, friction: 14 }).start();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    },
+  })).current;
 
   async function loadWardrobe() {
     if (!profile) return;
@@ -665,30 +697,50 @@ export default function WardrobeScreen() {
         </View>
       </View>
 
-      {/* Main layout: left sidebar tabs + right grid */}
+      {/* Main layout: animated left sidebar + right grid */}
       <View style={ws.body}>
-        {/* Left sidebar — category tabs */}
-        <ScrollView style={ws.sidebar} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-          {['All', ...CATEGORIES].map(c => {
-            const active = filter === c;
-            const count = c === 'All' ? wardrobe.length : wardrobe.filter(i => i.category === c).length;
-            return (
-              <TouchableOpacity
-                key={c}
-                onPress={() => setFilter(c)}
-                style={[ws.sideTab, active && ws.sideTabActive]}
-                activeOpacity={0.7}
-              >
-                <Text style={ws.sideTabIcon}>{c === 'All' ? '✦' : (CATEGORY_ICONS[c] || '•')}</Text>
-                <Text style={[ws.sideTabLabel, active && ws.sideTabLabelActive]} numberOfLines={1}>{c}</Text>
-                {active && count > 0 && <Text style={[ws.sideTabCount, ws.sideTabCountActive]}>{count}</Text>}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+        {/* Animated sidebar */}
+        <Animated.View style={[ws.sidebar, { width: sidebarAnim }]}>
+          {/* Collapse/expand toggle at top */}
+          <TouchableOpacity onPress={toggleSidebar} style={ws.sideToggle} activeOpacity={0.7}>
+            <Text style={ws.sideToggleIcon}>{sidebarExpanded ? '◀' : '▶'}</Text>
+          </TouchableOpacity>
 
-        {/* Right content */}
-        <View style={ws.gridArea}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+            {['All', ...CATEGORIES].map(c => {
+              const active = filter === c;
+              const count = c === 'All' ? wardrobe.length : wardrobe.filter(i => i.category === c).length;
+              return (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => { setFilter(c); Haptics.selectionAsync(); }}
+                  style={[ws.sideTab, active && ws.sideTabActive]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[ws.sideTabIcon, active && ws.sideTabIconActive]}>
+                    {c === 'All' ? '✦' : (CATEGORY_ICONS[c] || '•')}
+                  </Text>
+                  {sidebarExpanded && (
+                    <Text style={[ws.sideTabLabel, active && ws.sideTabLabelActive]} numberOfLines={1}>
+                      {c}
+                    </Text>
+                  )}
+                  {sidebarExpanded && active && count > 0 && (
+                    <Text style={ws.sideTabCount}>{count}</Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
+
+        {/* Drag handle tracks sidebar right edge */}
+        <Animated.View style={[ws.dragHandle, { left: Animated.subtract(sidebarAnim, 6) }]} {...panResponder.panHandlers}>
+          <View style={ws.dragPill} />
+        </Animated.View>
+
+        {/* Right grid */}
+        <Animated.View style={[ws.gridArea, { marginLeft: sidebarAnim }]}>
           {loading
             ? <ActivityIndicator color={Colors.accent2} style={{ marginTop:60 }} />
             : filtered.length === 0
@@ -704,13 +756,14 @@ export default function WardrobeScreen() {
                   keyExtractor={i => i.id}
                   renderItem={renderItem}
                   numColumns={2}
+                  key={2}
                   contentContainerStyle={{ padding:8, paddingBottom:120 }}
                   columnWrapperStyle={{ gap:8 }}
                   ItemSeparatorComponent={() => <View style={{ height:8 }} />}
                   showsVerticalScrollIndicator={false}
                 />
           }
-        </View>
+        </Animated.View>
       </View>
 
       {/* FABs — Upload (primary) + Manual add (secondary) */}
@@ -811,19 +864,23 @@ const ws = StyleSheet.create({
   searchRow: { padding:12, paddingTop:8 },
   searchBox: { flexDirection:'row', alignItems:'center', backgroundColor:Colors.inpBg, borderWidth:1, borderColor:Colors.inpBorder, borderRadius:Radius.full, paddingHorizontal:14, paddingVertical:9, gap:8 },
   searchInput: { flex:1, fontSize:14, color:Colors.text },
-  body: { flex:1, flexDirection:'row' },
-  sidebar: { width:SIDEBAR_W, backgroundColor:Colors.bg2, borderRightWidth:1, borderRightColor:Colors.border },
-  sideTab: { alignItems:'center', paddingVertical:9, paddingHorizontal:2, borderRightWidth:2, borderRightColor:'transparent' },
-  sideTabActive: { backgroundColor:Colors.bg3, borderRightColor:Colors.accent2 },
-  sideTabIcon: { fontSize:16, marginBottom:2 },
-  sideTabLabel: { fontSize:9, color:Colors.text3, fontWeight:'500', textAlign:'center' },
+  body: { flex:1, flexDirection:'row', position:'relative' },
+  sidebar: { position:'absolute', top:0, bottom:0, left:0, backgroundColor:Colors.bg2, borderRightWidth:1, borderRightColor:Colors.border, zIndex:10, overflow:'hidden' },
+  sideToggle: { alignItems:'center', justifyContent:'center', paddingVertical:10, borderBottomWidth:1, borderBottomColor:Colors.border },
+  sideToggleIcon: { fontSize:10, color:Colors.text3 },
+  sideTab: { flexDirection:'row', alignItems:'center', paddingVertical:10, paddingHorizontal:10, borderLeftWidth:2, borderLeftColor:'transparent', gap:8 },
+  sideTabActive: { backgroundColor:'rgba(29,78,216,0.1)', borderLeftColor:Colors.accent2 },
+  sideTabIcon: { fontSize:15, width:20, textAlign:'center' },
+  sideTabIconActive: { },
+  sideTabLabel: { fontSize:12, color:Colors.text3, fontWeight:'500', flex:1 },
   sideTabLabelActive: { color:Colors.accent2, fontWeight:'700' },
-  sideTabCount: { fontSize:9, color:Colors.text3, marginTop:1 },
-  sideTabCountActive: { color:Colors.accent2 },
-  gridArea: { flex:1 },
-  itemCard: { width:CARD, backgroundColor:Colors.card, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, overflow:'hidden', ...Shadow.card, position:'relative' },
-  itemPhoto: { width:'100%', height:CARD * 0.9 },
-  itemIconBox: { height:CARD * 0.9, backgroundColor:Colors.bg3, alignItems:'center', justifyContent:'center' },
+  sideTabCount: { fontSize:10, color:Colors.accent2, fontWeight:'700', marginLeft:'auto' },
+  dragHandle: { position:'absolute', top:0, bottom:0, width:14, zIndex:20, justifyContent:'center', alignItems:'center' },
+  dragPill: { width:3, height:40, backgroundColor:Colors.border, borderRadius:2 },
+  gridArea: { position:'absolute', top:0, right:0, bottom:0 },
+  itemCard: { flex:1, backgroundColor:Colors.card, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, overflow:'hidden', ...Shadow.card, position:'relative' },
+  itemPhoto: { width:'100%', aspectRatio: 0.85 },
+  itemIconBox: { aspectRatio: 0.85, backgroundColor:Colors.bg3, alignItems:'center', justifyContent:'center' },
   itemEmoji: { fontSize:52 },
   itemInfo: { padding:10 },
   itemName: { fontSize:13, fontWeight:'600', color:Colors.text, marginBottom:2 },
