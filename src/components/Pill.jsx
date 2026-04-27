@@ -6,7 +6,7 @@ export function Pill({ label, active, onPress }) {
   return (
     <TouchableOpacity
       onPress={onPress}
-      activeOpacity={0.7}
+      activeOpacity={0.65}
       style={[styles.pill, active && styles.pillActive]}
     >
       <Text style={[styles.label, active && styles.labelActive]}>{label}</Text>
@@ -16,25 +16,26 @@ export function Pill({ label, active, onPress }) {
 
 const styles = StyleSheet.create({
   pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 13,
+    paddingVertical: 6,
     borderRadius: Radius.full,
     borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.inpBg,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
     margin: 3,
   },
   pillActive: {
-    borderColor: Colors.accent2,
+    borderColor: 'rgba(125,211,252,0.4)',
     backgroundColor: 'rgba(29,78,216,0.2)',
   },
   label: {
     fontSize: 12,
     fontWeight: '500',
-    color: Colors.text2,
+    color: Colors.text3,
+    letterSpacing: 0.2,
   },
   labelActive: {
     color: Colors.accent2,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

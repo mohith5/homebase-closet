@@ -53,7 +53,7 @@ function ItemModal({ profile, householdId, existingItem, onClose, onSaved }) {
 
   async function pickProductPhoto() {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'], quality: 0.8, allowsEditing: true, aspect: [3, 4],
+      mediaTypes: ['images'], quality: 0.85, allowsEditing: true, aspect: [3, 4],
     });
     if (!result.canceled) setPhotoUri(result.assets[0].uri);
   }
@@ -67,7 +67,7 @@ function ItemModal({ profile, householdId, existingItem, onClose, onSaved }) {
   async function startBarcode() {
     if (!permission?.granted) {
       const { granted } = await requestPermission();
-      if (!granted) { Alert.alert('Camera permission required'); return; }
+      if (!granted) { Alert.alert('Camera Access Required', 'Allow camera access in Settings to scan barcodes.'); return; }
     }
     setScanning(true);
   }
@@ -77,21 +77,19 @@ function ItemModal({ profile, householdId, existingItem, onClose, onSaved }) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const info = await lookupBarcode(data);
     if (info) { setForm(f => ({ ...f, ...info })); }
-    else Alert.alert('Barcode scanned', 'No product found. Fill in details manually.');
+    else Alert.alert('Not Found', 'No product found for this barcode. Fill in details manually.');
   }
 
   async function save() {
+    if (!form.name && !form.category) { Alert.alert('Missing Info', 'Please enter a name or select a category.'); return; }
     setSaving(true);
     try {
-      // Upload product photo if a new local URI was picked
       let photo_url = form.photo_url || null;
       if (photoUri && photoUri.startsWith('file://')) {
         const ext = photoUri.split('.').pop() || 'jpg';
         const path = `${profile.id}/items/${Date.now()}.${ext}`;
         photo_url = await uploadPhoto(photoUri, path);
-        Logger.info('Wardrobe', 'Product photo uploaded', { path: photo_url });
       }
-
       const payload = { ...form, photo_url };
       if (isEdit) {
         const { error } = await supabase.from('wardrobe_items').update(payload).eq('id', existingItem.id);
@@ -113,132 +111,184 @@ function ItemModal({ profile, householdId, existingItem, onClose, onSaved }) {
     setSaving(false);
   }
 
+  // Barcode scanner fullscreen
   if (scanning) return (
     <View style={StyleSheet.absoluteFill}>
-      <CameraView style={StyleSheet.absoluteFill} onBarcodeScanned={onBarcodeScanned}
-        barcodeScannerSettings={{ barcodeTypes: ['ean13','ean8','upc_a','upc_e','qr'] }} />
-      <View style={m.scanOverlay}>
-        <View style={m.scanFrame} />
-        <Text style={m.scanHint}>Point at barcode</Text>
-        <TouchableOpacity onPress={() => setScanning(false)} style={m.scanCancel}>
-          <Text style={{ color:'#fff', fontSize:14, fontWeight:'600' }}>Cancel</Text>
+      <CameraView
+        style={StyleSheet.absoluteFill}
+        onBarcodeScanned={onBarcodeScanned}
+        barcodeScannerSettings={{ barcodeTypes: ['ean13','ean8','upc_a','upc_e','qr'] }}
+      />
+      {/* Dark vignette */}
+      <View style={m.scanVignette} />
+      <View style={m.scanUI}>
+        <Text style={m.scanTitle}>Scan Barcode</Text>
+        <Text style={m.scanSub}>Point at any product tag or label</Text>
+        <View style={m.scanFrame}>
+          {/* Corner marks */}
+          <View style={[m.corner, m.cornerTL]} />
+          <View style={[m.corner, m.cornerTR]} />
+          <View style={[m.corner, m.cornerBL]} />
+          <View style={[m.corner, m.cornerBR]} />
+        </View>
+        <TouchableOpacity onPress={() => setScanning(false)} style={m.scanCancelBtn}>
+          <Text style={m.scanCancelText}>Cancel</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 
   return (
-    <ScrollView style={{ flex:1 }} contentContainerStyle={{ padding:Spacing.lg, paddingBottom:80 }}
-      showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-      <View style={m.handle} />
-      <Text style={m.title}>{isEdit ? 'Edit Item' : 'Add Item'}</Text>
-
-      {/* Product photo — tap to add/change */}
-      <TouchableOpacity onPress={pickProductPhoto} style={m.iconDisplay} activeOpacity={0.8}>
+    <ScrollView
+      style={{ flex:1, backgroundColor: Colors.bg }}
+      contentContainerStyle={m.formContainer}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* Photo picker */}
+      <TouchableOpacity onPress={pickProductPhoto} style={m.photoWell} activeOpacity={0.8}>
         {photoUri
           ? <Image source={{ uri: photoUri }} style={m.productPhoto} resizeMode="cover" />
-          : <>
-              <Text style={m.iconEmoji}>{CATEGORY_ICONS[form.category] || '👕'}</Text>
-              <Text style={m.iconLabel}>{form.category}</Text>
-            </>
+          : <View style={m.photoPlaceholder}>
+              <Text style={m.photoPlaceholderIcon}>⊕</Text>
+              <Text style={m.photoPlaceholderText}>Add Photo</Text>
+            </View>
         }
         <View style={m.photoOverlay}>
-          <Text style={{ color:'#fff', fontSize:11, fontWeight:'600' }}>
-            {photoUri ? '📷 Change Photo' : '📷 Add Product Photo'}
-          </Text>
+          <Text style={m.photoOverlayText}>{photoUri ? 'Change Photo' : 'Tap to add'}</Text>
         </View>
       </TouchableOpacity>
 
-      {/* Barcode only for new items */}
-      {!isEdit && (
-        <TouchableOpacity onPress={startBarcode} style={m.barcodeBtn}>
-          <Text style={{ fontSize:16 }}>📊</Text>
-          <Text style={{ color:Colors.accent2, fontSize:13, fontWeight:'600', marginLeft:8 }}>Scan Barcode to Auto-Fill</Text>
-        </TouchableOpacity>
-      )}
+      {/* Barcode scanner button — always visible, new + edit */}
+      <TouchableOpacity onPress={startBarcode} style={m.barcodeBtn} activeOpacity={0.75}>
+        <View style={m.barcodeBtnIcon}>
+          <Text style={{ fontSize: 14, color: Colors.accent2 }}>▤</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={m.barcodeBtnTitle}>Scan Barcode</Text>
+          <Text style={m.barcodeBtnSub}>Auto-fill brand, name & details</Text>
+        </View>
+        <Text style={{ fontSize: 12, color: Colors.text3 }}>›</Text>
+      </TouchableOpacity>
 
+      {/* Category */}
       <Text style={m.label}>Category</Text>
-      <View style={m.pills}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={m.pillRow}>
         {CATEGORIES.map(c => <Pill key={c} label={c} active={form.category===c} onPress={() => set('category', c)} />)}
-      </View>
+      </ScrollView>
 
+      {/* Name */}
       <Text style={m.label}>Item Name</Text>
       <TextInput style={m.input} value={form.name} onChangeText={v => set('name', v)}
-        placeholder="e.g. White Oxford Shirt" placeholderTextColor={Colors.text3} />
+        placeholder="e.g. White Oxford Shirt" placeholderTextColor={Colors.text3}
+        returnKeyType="next" />
 
-      <Text style={m.label}>Primary Color</Text>
-      <View style={m.pills}>
-        {COLORS.map(c => <Pill key={c} label={c} active={form.color===c} onPress={() => set('color', c)} />)}
-      </View>
-
-      <Text style={m.label}>Fit</Text>
-      <View style={m.pills}>
-        {FITS.map(f => <Pill key={f} label={f} active={form.fit===f} onPress={() => set('fit', f)} />)}
-      </View>
-
-      <View style={{ flexDirection:'row', gap:12 }}>
+      {/* Brand + Material */}
+      <View style={{ flexDirection:'row', gap: 10 }}>
         <View style={{ flex:1 }}>
           <Text style={m.label}>Brand</Text>
           <TextInput style={m.input} value={form.brand} onChangeText={v => set('brand', v)}
-            placeholder="e.g. Nike" placeholderTextColor={Colors.text3} />
+            placeholder="Nike, Zara..." placeholderTextColor={Colors.text3} />
         </View>
         <View style={{ flex:1 }}>
           <Text style={m.label}>Material</Text>
           <TextInput style={m.input} value={form.material} onChangeText={v => set('material', v)}
-            placeholder="e.g. Cotton" placeholderTextColor={Colors.text3} />
+            placeholder="Cotton, Wool..." placeholderTextColor={Colors.text3} />
         </View>
       </View>
 
+      {/* Color */}
+      <Text style={m.label}>Color</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={m.pillRow}>
+        {COLORS.map(c => <Pill key={c} label={c} active={form.color===c} onPress={() => set('color', c)} />)}
+      </ScrollView>
+
+      {/* Fit */}
+      <Text style={m.label}>Fit</Text>
+      <View style={m.pillWrap}>
+        {FITS.map(f => <Pill key={f} label={f} active={form.fit===f} onPress={() => set('fit', f)} />)}
+      </View>
+
+      {/* Occasions */}
       <Text style={m.label}>Best For</Text>
-      <View style={m.pills}>
+      <View style={m.pillWrap}>
         {OCCASIONS.map(o => <Pill key={o} label={o} active={(form.occasions||[]).includes(o)} onPress={() => toggle('occasions', o)} />)}
       </View>
 
+      {/* Seasons */}
       <Text style={m.label}>Season</Text>
-      <View style={m.pills}>
+      <View style={m.pillWrap}>
         {SEASONS.map(s => <Pill key={s} label={s} active={(form.seasons||[]).includes(s)} onPress={() => toggle('seasons', s)} />)}
       </View>
 
+      {/* Notes */}
       <Text style={m.label}>Notes</Text>
-      <TextInput style={[m.input, { height:60 }]} value={form.notes} onChangeText={v => set('notes', v)}
-        placeholder="Any notes..." placeholderTextColor={Colors.text3} multiline />
+      <TextInput
+        style={[m.input, m.notesInput]}
+        value={form.notes}
+        onChangeText={v => set('notes', v)}
+        placeholder="Care instructions, where you bought it..."
+        placeholderTextColor={Colors.text3}
+        multiline
+      />
 
-      <TouchableOpacity onPress={save} disabled={saving} activeOpacity={0.85} style={{ marginTop:16 }}>
-        <LinearGradient colors={['#1d4ed8','#7c3aed']} style={[m.saveBtn, saving && { opacity:0.6 }]}
+      {/* Save */}
+      <TouchableOpacity onPress={save} disabled={saving} activeOpacity={0.85} style={m.saveBtnWrap}>
+        <LinearGradient colors={['#1d4ed8','#6d28d9']} style={[m.saveBtn, saving && { opacity: 0.6 }]}
           start={{x:0,y:0}} end={{x:1,y:0}}>
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={m.saveBtnText}>{isEdit ? 'Save Changes' : 'Add to Wardrobe'}</Text>}
+          {saving
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={m.saveBtnText}>{isEdit ? 'Save Changes' : 'Add to Wardrobe'}</Text>
+          }
         </LinearGradient>
       </TouchableOpacity>
-
-      {isEdit && (
-        <TouchableOpacity onPress={onClose} style={m.cancelBtn}>
-          <Text style={m.cancelBtnText}>Cancel</Text>
-        </TouchableOpacity>
-      )}
     </ScrollView>
   );
 }
 
 const m = StyleSheet.create({
-  handle: { width:36, height:4, backgroundColor:Colors.border, borderRadius:2, alignSelf:'center', marginBottom:16 },
-  title: { fontSize:20, fontWeight:'700', color:Colors.text, marginBottom:20 },
-  iconDisplay: { alignItems:'center', justifyContent:'center', height:160, backgroundColor:Colors.bg3, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, marginBottom:16, overflow:'hidden', position:'relative' },
-  productPhoto: { width:'100%', height:'100%' },
-  iconEmoji: { fontSize:48 },
-  iconLabel: { fontSize:13, color:Colors.text2, marginTop:6, fontWeight:'600' },
-  photoOverlay: { position:'absolute', bottom:0, left:0, right:0, backgroundColor:'rgba(0,0,0,0.55)', padding:6, alignItems:'center' },
-  barcodeBtn: { flexDirection:'row', alignItems:'center', padding:12, backgroundColor:Colors.bg3, borderRadius:Radius.md, borderWidth:1, borderColor:Colors.border, marginBottom:20 },
-  label: { fontSize:12, fontWeight:'600', color:Colors.text2, textTransform:'uppercase', letterSpacing:0.5, marginBottom:8, marginTop:16 },
-  pills: { flexDirection:'row', flexWrap:'wrap', marginHorizontal:-3 },
-  input: { backgroundColor:Colors.inpBg, borderWidth:1, borderColor:Colors.inpBorder, borderRadius:Radius.md, padding:12, fontSize:14, color:Colors.text },
-  saveBtn: { padding:15, borderRadius:Radius.md, alignItems:'center' },
-  saveBtnText: { color:'#fff', fontSize:15, fontWeight:'700' },
-  cancelBtn: { padding:14, alignItems:'center', marginTop:8 },
-  cancelBtnText: { color:Colors.text3, fontSize:14 },
-  scanOverlay: { ...StyleSheet.absoluteFillObject, alignItems:'center', justifyContent:'center' },
-  scanFrame: { width:240, height:140, borderWidth:2, borderColor:Colors.accent2, borderRadius:Radius.md },
-  scanHint: { color:'#fff', fontSize:14, marginTop:16, fontWeight:'500' },
-  scanCancel: { marginTop:32, padding:12, backgroundColor:'rgba(0,0,0,0.6)', borderRadius:Radius.md },
+  formContainer: { padding: Spacing.lg, paddingBottom: 60, gap: 0 },
+
+  // Photo
+  photoWell: { height: 200, borderRadius: Radius.lg, overflow: 'hidden', backgroundColor: '#0d1220', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', marginBottom: 14, position: 'relative' },
+  productPhoto: { width: '100%', height: '100%' },
+  photoPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  photoPlaceholderIcon: { fontSize: 32, color: Colors.text3 },
+  photoPlaceholderText: { fontSize: 13, color: Colors.text3, fontWeight: '500' },
+  photoOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', paddingVertical: 8, alignItems: 'center' },
+  photoOverlayText: { fontSize: 12, color: 'rgba(255,255,255,0.7)', fontWeight: '600', letterSpacing: 0.5 },
+
+  // Barcode
+  barcodeBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(29,78,216,0.08)', borderWidth: 1, borderColor: 'rgba(29,78,216,0.2)', borderRadius: Radius.md, padding: 14, marginBottom: 20 },
+  barcodeBtnIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(29,78,216,0.2)', alignItems: 'center', justifyContent: 'center' },
+  barcodeBtnTitle: { fontSize: 13, fontWeight: '700', color: Colors.text, marginBottom: 1 },
+  barcodeBtnSub: { fontSize: 11, color: Colors.text3 },
+
+  // Form fields
+  label: { fontSize: 10, fontWeight: '700', color: Colors.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginTop: 18 },
+  pillRow: { paddingVertical: 2, gap: 0 },
+  pillWrap: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -3 },
+  input: { backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: Radius.md, padding: 13, fontSize: 14, color: Colors.text },
+  notesInput: { height: 72, textAlignVertical: 'top' },
+
+  // Save button
+  saveBtnWrap: { marginTop: 28 },
+  saveBtn: { padding: 16, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.3 },
+
+  // Barcode scanner UI
+  scanVignette: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
+  scanUI: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  scanTitle: { fontSize: 20, fontWeight: '700', color: '#fff', marginBottom: 6 },
+  scanSub: { fontSize: 13, color: 'rgba(255,255,255,0.6)', marginBottom: 40 },
+  scanFrame: { width: 260, height: 160, position: 'relative' },
+  corner: { position: 'absolute', width: 24, height: 24, borderColor: Colors.accent2, borderWidth: 2 },
+  cornerTL: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 4 },
+  cornerTR: { top: 0, right: 0, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 4 },
+  cornerBL: { bottom: 0, left: 0, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 4 },
+  cornerBR: { bottom: 0, right: 0, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 4 },
+  scanCancelBtn: { marginTop: 48, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: Radius.full, paddingHorizontal: 28, paddingVertical: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+  scanCancelText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });
 
 /* ══════════════════════════════════════════════
@@ -652,81 +702,99 @@ export default function WardrobeScreen() {
   const renderItem = useCallback(({ item }) => (
     <TouchableOpacity
       style={ws.itemCard}
-      activeOpacity={0.85}
+      activeOpacity={0.8}
       onPress={() => setEditingItem(item)}
       onLongPress={() => deleteItem(item.id)}
     >
-      {/* Show signed photo if available, else category emoji */}
       {item.photo_url
         ? <Image source={{ uri: item.photo_url }} style={ws.itemPhoto} resizeMode="cover" />
         : <View style={ws.itemIconBox}>
-            <Text style={ws.itemEmoji}>{CATEGORY_ICONS[item.category] || '👕'}</Text>
+            {/* Category initial — clean, no emoji */}
+            <Text style={{ fontSize: 28, fontWeight: '200', color: Colors.text3, letterSpacing: -1 }}>
+              {item.category?.[0] || '?'}
+            </Text>
+            <Text style={ws.itemCategoryLabel}>{item.category}</Text>
           </View>
       }
       <View style={ws.itemInfo}>
-        <Text style={ws.itemName} numberOfLines={1}>{item.name || item.category}</Text>
+        <Text style={ws.itemName} numberOfLines={2}>{item.name || item.category}</Text>
         <Text style={ws.itemMeta} numberOfLines={1}>
           {[item.color, item.brand].filter(Boolean).join(' · ')}
         </Text>
-        {item.fit ? <Text style={ws.itemFit}>{item.fit}</Text> : null}
       </View>
-      <View style={ws.editBadge}>
-        <Text style={{ fontSize:10, color:Colors.text3 }}>✏️</Text>
-      </View>
+      <View style={ws.itemEditDot} />
     </TouchableOpacity>
   ), [wardrobe]);
 
   return (
     <View style={ws.screen}>
-      <LinearGradient colors={Gradients.header} style={[ws.header, { paddingTop: insets.top + 10 }]}>
-        <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start' }}>
+      {/* Header */}
+      <LinearGradient colors={['#080c14','#0f1729']} style={[ws.header, { paddingTop: insets.top + 12 }]}>
+        <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-end' }}>
           <View>
-            <Text style={ws.headerTitle}>Wardrobe</Text>
-            <Text style={ws.headerSub}>{wardrobe.length} items · {profile?.display_name || profile?.label} · tap item to edit</Text>
+            <Text style={ws.headerEyebrow}>{profile?.display_name || 'My'} Wardrobe</Text>
+            <Text style={ws.headerTitle}>Closet</Text>
+          </View>
+          <View style={ws.headerBadge}>
+            <Text style={ws.headerBadgeNum}>{wardrobe.length}</Text>
+            <Text style={ws.headerBadgeLabel}>items</Text>
           </View>
         </View>
-      </LinearGradient>
 
-      {/* Search */}
-      <View style={ws.searchRow}>
+        {/* Search */}
         <View style={ws.searchBox}>
-          <Text>🔍</Text>
-          <TextInput style={ws.searchInput} value={search} onChangeText={setSearch}
-            placeholder="Search..." placeholderTextColor={Colors.text3} />
-          {search.length > 0 && <TouchableOpacity onPress={() => setSearch('')}><Text style={{ color:Colors.text3, fontSize:18 }}>×</Text></TouchableOpacity>}
+          <Text style={ws.searchIcon}>⌕</Text>
+          <TextInput
+            style={ws.searchInput}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search name, brand, color..."
+            placeholderTextColor={Colors.text3}
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')} style={ws.searchClear}>
+              <Text style={{ color:Colors.text3, fontSize:16, lineHeight:18 }}>×</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      </View>
+      </LinearGradient>
 
       {/* Main layout: animated left sidebar + right grid */}
       <View style={ws.body}>
         {/* Animated sidebar */}
         <Animated.View style={[ws.sidebar, { width: sidebarAnim }]}>
-          {/* Collapse/expand toggle at top */}
-          <TouchableOpacity onPress={toggleSidebar} style={ws.sideToggle} activeOpacity={0.7}>
-            <Text style={ws.sideToggleIcon}>{sidebarExpanded ? '◀' : '▶'}</Text>
+          {/* Collapse/expand toggle */}
+          <TouchableOpacity onPress={toggleSidebar} style={ws.sideToggle} activeOpacity={0.6}>
+            <Text style={ws.sideToggleIcon}>{sidebarExpanded ? '‹' : '›'}</Text>
           </TouchableOpacity>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }}>
             {['All', ...CATEGORIES].map(c => {
               const active = filter === c;
               const count = c === 'All' ? wardrobe.length : wardrobe.filter(i => i.category === c).length;
+              if (!sidebarExpanded && count === 0 && c !== 'All') return null;
               return (
                 <TouchableOpacity
                   key={c}
                   onPress={() => { setFilter(c); Haptics.selectionAsync(); }}
                   style={[ws.sideTab, active && ws.sideTabActive]}
-                  activeOpacity={0.7}
+                  activeOpacity={0.65}
                 >
-                  <Text style={[ws.sideTabIcon, active && ws.sideTabIconActive]}>
-                    {c === 'All' ? '✦' : (CATEGORY_ICONS[c] || '•')}
-                  </Text>
-                  {sidebarExpanded && (
-                    <Text style={[ws.sideTabLabel, active && ws.sideTabLabelActive]} numberOfLines={1}>
-                      {c}
+                  {/* Category initial letter as icon — clean, no emoji */}
+                  <View style={[ws.sideTabDot, active && ws.sideTabDotActive]}>
+                    <Text style={[ws.sideTabDotText, active && ws.sideTabDotTextActive]}>
+                      {c === 'All' ? '✦' : c[0]}
                     </Text>
-                  )}
-                  {sidebarExpanded && active && count > 0 && (
-                    <Text style={ws.sideTabCount}>{count}</Text>
+                  </View>
+                  {sidebarExpanded && (
+                    <>
+                      <Text style={[ws.sideTabLabel, active && ws.sideTabLabelActive]} numberOfLines={1}>
+                        {c}
+                      </Text>
+                      {count > 0 && (
+                        <Text style={[ws.sideTabCount, active && ws.sideTabCountActive]}>{count}</Text>
+                      )}
+                    </>
                   )}
                 </TouchableOpacity>
               );
@@ -734,58 +802,68 @@ export default function WardrobeScreen() {
           </ScrollView>
         </Animated.View>
 
-        {/* Drag handle tracks sidebar right edge */}
-        <Animated.View style={[ws.dragHandle, { left: Animated.subtract(sidebarAnim, 6) }]} {...panResponder.panHandlers}>
+        {/* Drag handle */}
+        <Animated.View style={[ws.dragHandle, { left: Animated.subtract(sidebarAnim, 7) }]} {...panResponder.panHandlers}>
           <View style={ws.dragPill} />
         </Animated.View>
 
-        {/* Right grid */}
+        {/* Grid */}
         <Animated.View style={[ws.gridArea, { marginLeft: sidebarAnim }]}>
           {loading
-            ? <ActivityIndicator color={Colors.accent2} style={{ marginTop:60 }} />
+            ? <ActivityIndicator color={Colors.accent2} style={{ marginTop: 80 }} size="large" />
             : filtered.length === 0
               ? <View style={ws.empty}>
-                  <Text style={{ fontSize:44 }}>👚</Text>
-                  <Text style={ws.emptyText}>{wardrobe.length === 0
-                    ? 'Your wardrobe is empty.\nUpload photos or add manually.'
-                    : 'No items match.'
-                  }</Text>
+                  <View style={ws.emptyIcon}><Text style={{ fontSize: 28, color: Colors.text3 }}>▢</Text></View>
+                  <Text style={ws.emptyTitle}>
+                    {wardrobe.length === 0 ? 'Empty Wardrobe' : 'No Results'}
+                  </Text>
+                  <Text style={ws.emptyText}>
+                    {wardrobe.length === 0
+                      ? 'Upload outfit photos or add items manually to build your digital closet.'
+                      : 'No items match your search or filter.'}
+                  </Text>
+                  {wardrobe.length === 0 && (
+                    <TouchableOpacity onPress={() => setShowUpload(true)} style={ws.emptyAction}>
+                      <Text style={ws.emptyActionText}>Upload Photos</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               : <FlatList
                   data={filtered}
                   keyExtractor={i => i.id}
                   renderItem={renderItem}
                   numColumns={2}
-                  key={2}
-                  contentContainerStyle={{ padding:8, paddingBottom:120 }}
-                  columnWrapperStyle={{ gap:8 }}
-                  ItemSeparatorComponent={() => <View style={{ height:8 }} />}
+                  key="grid-2"
+                  contentContainerStyle={{ padding: 10, paddingBottom: 140 }}
+                  columnWrapperStyle={{ gap: 10 }}
+                  ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
                   showsVerticalScrollIndicator={false}
                 />
           }
         </Animated.View>
       </View>
 
-      {/* FABs — Upload (primary) + Manual add (secondary) */}
-      <View style={ws.fabGroup}>
-        <TouchableOpacity onPress={() => setShowAdd(true)} style={ws.fabSecondary} activeOpacity={0.85}>
-          <Text style={ws.fabSecondaryText}>+ Manual</Text>
+      {/* FABs — pinned above tab bar */}
+      <View style={[ws.fabGroup, { bottom: insets.bottom + 84 }]}>
+        <TouchableOpacity onPress={() => setShowAdd(true)} style={ws.fabSecondary} activeOpacity={0.8}>
+          <Text style={ws.fabSecondaryText}>+ Add</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setShowUpload(true)} activeOpacity={0.85}>
-          <LinearGradient colors={['#1d4ed8','#7c3aed']} style={ws.fab} start={{x:0,y:0}} end={{x:1,y:1}}>
-            <Text style={ws.fabText}>📷</Text>
+          <LinearGradient colors={['#1d4ed8','#6d28d9']} style={ws.fab} start={{x:0,y:0}} end={{x:1,y:1}}>
+            <Text style={ws.fabIcon}>⊕</Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
 
-      {/* Upload & Segregate Modal */}
+      {/* Upload Modal */}
       <Modal visible={showUpload} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowUpload(false)}>
         <View style={{ flex:1, backgroundColor:Colors.bg }}>
           <View style={ws.modalHeader}>
-            <Text style={{ color:Colors.text, fontSize:16, fontWeight:'600' }}>Upload Photos</Text>
-            <TouchableOpacity onPress={() => setShowUpload(false)}>
-              <Text style={{ color:Colors.accent2, fontSize:15, fontWeight:'600' }}>Done</Text>
+            <TouchableOpacity onPress={() => setShowUpload(false)} style={ws.modalClose}>
+              <Text style={ws.modalCloseText}>Done</Text>
             </TouchableOpacity>
+            <Text style={ws.modalTitle}>Smart Scan</Text>
+            <View style={{ width: 60 }} />
           </View>
           <UploadSheet
             profile={profile}
@@ -793,7 +871,7 @@ export default function WardrobeScreen() {
             onClose={() => setShowUpload(false)}
             onItemsSaved={(items) => {
               items.forEach(i => addWardrobeItem(i));
-              showToast(`${items.length} items saved to wardrobe`);
+              showToast(`${items.length} items saved`);
             }}
           />
         </View>
@@ -803,10 +881,11 @@ export default function WardrobeScreen() {
       <Modal visible={showAdd} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowAdd(false)}>
         <View style={{ flex:1, backgroundColor:Colors.bg }}>
           <View style={ws.modalHeader}>
-            <Text style={{ color:Colors.text, fontSize:16, fontWeight:'600' }}>Add Item</Text>
-            <TouchableOpacity onPress={() => setShowAdd(false)}>
-              <Text style={{ color:Colors.accent2, fontSize:15, fontWeight:'600' }}>Cancel</Text>
+            <TouchableOpacity onPress={() => setShowAdd(false)} style={ws.modalClose}>
+              <Text style={ws.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
+            <Text style={ws.modalTitle}>Add Item</Text>
+            <View style={{ width: 60 }} />
           </View>
           <ItemModal
             profile={profile}
@@ -817,28 +896,28 @@ export default function WardrobeScreen() {
         </View>
       </Modal>
 
-      {/* Edit Item Modal */}
+      {/* Edit Modal */}
       <Modal visible={!!editingItem} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setEditingItem(null)}>
         <View style={{ flex:1, backgroundColor:Colors.bg }}>
-          <View style={[ws.modalHeader, { justifyContent:'space-between' }]}>
-            <TouchableOpacity onPress={() => setEditingItem(null)}>
-              <Text style={{ color:Colors.text2, fontSize:15 }}>Cancel</Text>
+          <View style={ws.modalHeader}>
+            <TouchableOpacity onPress={() => setEditingItem(null)} style={ws.modalClose}>
+              <Text style={ws.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
-            <Text style={{ color:Colors.text, fontSize:16, fontWeight:'600' }}>Edit Item</Text>
+            <Text style={ws.modalTitle}>Edit Item</Text>
             <TouchableOpacity onPress={() => {
               const item = editingItem;
               if (!item) return;
-              Alert.alert('Delete Item', `Permanently delete "${item.name || item.category}"?`, [
+              Alert.alert('Delete Item', `Remove "${item.name || item.category}" from your wardrobe?`, [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Delete', style: 'destructive', onPress: async () => {
                   await supabase.from('wardrobe_items').delete().eq('id', item.id);
                   removeWardrobeItem(item.id);
                   setEditingItem(null);
-                  showToast('Item deleted');
+                  showToast('Item removed');
                 }}
               ]);
-            }}>
-              <Text style={{ color:Colors.error, fontSize:15, fontWeight:'600' }}>Delete</Text>
+            }} style={ws.modalClose}>
+              <Text style={[ws.modalCloseText, { color: Colors.error }]}>Delete</Text>
             </TouchableOpacity>
           </View>
           {editingItem && (
@@ -858,41 +937,68 @@ export default function WardrobeScreen() {
 
 const ws = StyleSheet.create({
   screen: { flex:1, backgroundColor:Colors.bg },
-  header: { padding:Spacing.lg, paddingBottom:12 },
-  headerTitle: { fontSize:22, fontWeight:'700', color:Colors.text },
-  headerSub: { fontSize:11, color:Colors.text2, marginTop:2 },
-  searchRow: { padding:12, paddingTop:8 },
-  searchBox: { flexDirection:'row', alignItems:'center', backgroundColor:Colors.inpBg, borderWidth:1, borderColor:Colors.inpBorder, borderRadius:Radius.full, paddingHorizontal:14, paddingVertical:9, gap:8 },
+
+  // Header
+  header: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md },
+  headerEyebrow: { fontSize: 11, fontWeight: '600', color: Colors.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 2 },
+  headerTitle: { fontSize: 28, fontWeight: '700', color: Colors.text, letterSpacing: -0.5 },
+  headerBadge: { alignItems: 'center', backgroundColor: 'rgba(29,78,216,0.15)', borderWidth: 1, borderColor: 'rgba(29,78,216,0.3)', borderRadius: Radius.md, paddingHorizontal: 12, paddingVertical: 6 },
+  headerBadgeNum: { fontSize: 18, fontWeight: '700', color: Colors.accent2, lineHeight: 22 },
+  headerBadgeLabel: { fontSize: 9, color: Colors.text3, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+
+  // Search — inside header
+  searchBox: { flexDirection:'row', alignItems:'center', backgroundColor:'rgba(255,255,255,0.05)', borderWidth:1, borderColor:'rgba(255,255,255,0.08)', borderRadius: Radius.md, paddingHorizontal:14, paddingVertical:10, gap:8, marginTop: Spacing.md },
+  searchIcon: { fontSize: 18, color: Colors.text3 },
   searchInput: { flex:1, fontSize:14, color:Colors.text },
-  body: { flex:1, flexDirection:'row', position:'relative' },
-  sidebar: { position:'absolute', top:0, bottom:0, left:0, backgroundColor:Colors.bg2, borderRightWidth:1, borderRightColor:Colors.border, zIndex:10, overflow:'hidden' },
-  sideToggle: { alignItems:'center', justifyContent:'center', paddingVertical:10, borderBottomWidth:1, borderBottomColor:Colors.border },
-  sideToggleIcon: { fontSize:10, color:Colors.text3 },
-  sideTab: { flexDirection:'row', alignItems:'center', paddingVertical:10, paddingHorizontal:10, borderLeftWidth:2, borderLeftColor:'transparent', gap:8 },
-  sideTabActive: { backgroundColor:'rgba(29,78,216,0.1)', borderLeftColor:Colors.accent2 },
-  sideTabIcon: { fontSize:15, width:20, textAlign:'center' },
-  sideTabIconActive: { },
-  sideTabLabel: { fontSize:12, color:Colors.text3, fontWeight:'500', flex:1 },
-  sideTabLabelActive: { color:Colors.accent2, fontWeight:'700' },
-  sideTabCount: { fontSize:10, color:Colors.accent2, fontWeight:'700', marginLeft:'auto' },
+  searchClear: { padding: 2 },
+
+  // Body / sidebar
+  body: { flex:1, position:'relative' },
+  sidebar: { position:'absolute', top:0, bottom:0, left:0, backgroundColor: '#0a0e1a', borderRightWidth:1, borderRightColor:'rgba(255,255,255,0.05)', zIndex:10, overflow:'hidden' },
+  sideToggle: { alignItems:'center', justifyContent:'center', paddingVertical: 12, borderBottomWidth:1, borderBottomColor:'rgba(255,255,255,0.05)' },
+  sideToggleIcon: { fontSize: 16, color: Colors.text3, fontWeight: '300' },
+  sideTab: { flexDirection:'row', alignItems:'center', paddingVertical: 9, paddingHorizontal: 10, borderLeftWidth: 2, borderLeftColor:'transparent', gap: 8 },
+  sideTabActive: { backgroundColor:'rgba(29,78,216,0.12)', borderLeftColor: Colors.accent2 },
+  sideTabDot: { width: 22, height: 22, borderRadius: 6, backgroundColor:'rgba(255,255,255,0.05)', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', alignItems:'center', justifyContent:'center', flexShrink: 0 },
+  sideTabDotActive: { backgroundColor:'rgba(29,78,216,0.25)', borderColor:'rgba(125,211,252,0.3)' },
+  sideTabDotText: { fontSize: 9, fontWeight: '700', color: Colors.text3 },
+  sideTabDotTextActive: { color: Colors.accent2 },
+  sideTabLabel: { fontSize: 12, color: Colors.text3, fontWeight: '500', flex: 1 },
+  sideTabLabelActive: { color: Colors.accent2, fontWeight: '700' },
+  sideTabCount: { fontSize: 10, color: Colors.text3, fontWeight: '600' },
+  sideTabCountActive: { color: Colors.accent2 },
   dragHandle: { position:'absolute', top:0, bottom:0, width:14, zIndex:20, justifyContent:'center', alignItems:'center' },
-  dragPill: { width:3, height:40, backgroundColor:Colors.border, borderRadius:2 },
+  dragPill: { width:3, height:36, backgroundColor:'rgba(255,255,255,0.1)', borderRadius:2 },
+
+  // Grid
   gridArea: { position:'absolute', top:0, right:0, bottom:0 },
-  itemCard: { flex:1, backgroundColor:Colors.card, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, overflow:'hidden', ...Shadow.card, position:'relative' },
+  itemCard: { flex:1, backgroundColor:'#0d1220', borderRadius: Radius.lg, borderWidth:1, borderColor:'rgba(255,255,255,0.06)', overflow:'hidden', ...Shadow.card },
   itemPhoto: { width:'100%', aspectRatio: 0.85 },
-  itemIconBox: { aspectRatio: 0.85, backgroundColor:Colors.bg3, alignItems:'center', justifyContent:'center' },
-  itemEmoji: { fontSize:52 },
-  itemInfo: { padding:10 },
-  itemName: { fontSize:13, fontWeight:'600', color:Colors.text, marginBottom:2 },
-  itemMeta: { fontSize:11, color:Colors.text2 },
-  itemFit: { fontSize:10, color:Colors.text3, marginTop:2 },
-  editBadge: { position:'absolute', top:8, right:8, backgroundColor:'rgba(0,0,0,0.4)', borderRadius:10, padding:4 },
-  empty: { flex:1, alignItems:'center', justifyContent:'center', padding:40, gap:12 },
-  emptyText: { fontSize:14, color:Colors.text2, textAlign:'center', lineHeight:22 },
-  fabGroup: { position:'absolute', bottom:90, right:16, flexDirection:'row', alignItems:'center', gap:10 },
-  fabSecondary: { backgroundColor:Colors.bg2, borderWidth:1, borderColor:Colors.border, borderRadius:Radius.full, paddingHorizontal:16, paddingVertical:12 },
-  fabSecondaryText: { color:Colors.text2, fontSize:13, fontWeight:'600' },
-  fab: { width:56, height:56, borderRadius:28, alignItems:'center', justifyContent:'center', ...Shadow.fab },
-  fabText: { fontSize:24 },
-  modalHeader: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', padding:16, borderBottomWidth:1, borderBottomColor:Colors.border },
+  itemIconBox: { aspectRatio: 0.85, backgroundColor:'#111827', alignItems:'center', justifyContent:'center' },
+  itemCategoryLabel: { fontSize: 11, color: Colors.text3, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase', marginTop: 6 },
+  itemInfo: { padding: 10, paddingTop: 8 },
+  itemName: { fontSize: 12, fontWeight: '600', color: Colors.text, marginBottom: 2, lineHeight: 16 },
+  itemMeta: { fontSize: 10, color: Colors.text3 },
+  itemEditDot: { position:'absolute', top: 8, right: 8, width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accent2, opacity: 0.5 },
+
+  // Empty state
+  empty: { flex:1, alignItems:'center', justifyContent:'center', padding: 48, gap: 12 },
+  emptyIcon: { width: 64, height: 64, borderRadius: 20, backgroundColor:'rgba(255,255,255,0.04)', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', alignItems:'center', justifyContent:'center', marginBottom: 4 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: Colors.text },
+  emptyText: { fontSize: 13, color: Colors.text3, textAlign:'center', lineHeight: 20 },
+  emptyAction: { marginTop: 8, backgroundColor:'rgba(29,78,216,0.2)', borderWidth:1, borderColor:'rgba(29,78,216,0.4)', borderRadius: Radius.full, paddingHorizontal: 20, paddingVertical: 10 },
+  emptyActionText: { color: Colors.accent2, fontSize: 13, fontWeight: '600' },
+
+  // FABs
+  fabGroup: { position:'absolute', right: 16, flexDirection:'row', alignItems:'center', gap: 10 },
+  fabSecondary: { backgroundColor:'rgba(15,21,33,0.95)', borderWidth:1, borderColor:'rgba(255,255,255,0.1)', borderRadius: Radius.full, paddingHorizontal: 18, paddingVertical: 13, ...Shadow.card },
+  fabSecondaryText: { color: Colors.text2, fontSize: 13, fontWeight: '600', letterSpacing: 0.3 },
+  fab: { width: 54, height: 54, borderRadius: 27, alignItems:'center', justifyContent:'center', ...Shadow.fab },
+  fabIcon: { fontSize: 26, color: '#fff', lineHeight: 30 },
+
+  // Modals
+  modalHeader: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth:1, borderBottomColor:'rgba(255,255,255,0.06)' },
+  modalTitle: { fontSize: 15, fontWeight: '700', color: Colors.text, letterSpacing: 0.2 },
+  modalClose: { minWidth: 60 },
+  modalCloseText: { color: Colors.accent2, fontSize: 14, fontWeight: '600' },
 });
