@@ -12,23 +12,23 @@ const MODELS = {
 const MONTHLY_SOFT_CAP = 100;
 
 async function getMonthlyUsage() {
-  try {
-    const month = new Date().toISOString().slice(0, 7);
-    const { data } = await supabase.from('closet_ai_usage').select('calls').eq('month', month).maybeSingle();
-    return data?.calls || 0;
-  } catch { return 0; }
+  const month = new Date().toISOString().slice(0, 7);
+  const { data, error } = await supabase.from('closet_ai_usage').select('calls').eq('month', month).maybeSingle();
+  if (error) {
+    Logger.error('Claude', 'Usage fetch failed — blocking call to be safe', error);
+    // Fail closed: if we can't read usage, assume cap is hit to avoid runaway spend
+    return MONTHLY_SOFT_CAP;
+  }
+  return data?.calls || 0;
 }
 
 async function incrementUsage() {
   try {
     const month = new Date().toISOString().slice(0, 7);
-    const { data } = await supabase.from('closet_ai_usage').select('id,calls').eq('month', month).maybeSingle();
-    if (data) {
-      await supabase.from('closet_ai_usage').update({ calls: data.calls + 1 }).eq('id', data.id);
-    } else {
-      await supabase.from('closet_ai_usage').insert({ month, calls: 1 });
-    }
-  } catch (e) { Logger.warn('Claude', 'Usage increment failed', e); }
+    // Atomic increment via RPC to avoid race condition on concurrent calls
+    const { error } = await supabase.rpc('increment_ai_usage', { p_month: month });
+    if (error) Logger.warn('Claude', 'Usage increment failed', error);
+  } catch (e) { Logger.warn('Claude', 'Usage increment threw', e); }
 }
 
 // ─── Core caller ─────────────────────────────────────────────

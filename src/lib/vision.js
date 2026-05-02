@@ -192,6 +192,10 @@ export async function uploadCroppedPhoto(croppedUri, profileId) {
 export async function getSignedPhotoUrl(storagePath) {
   if (!storagePath) return null;
   if (storagePath.startsWith('http')) return storagePath;
-  const { data } = await supabase.storage.from(BUCKET).createSignedUrl(storagePath, 3600);
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(storagePath, 60 * 60 * 24 * 7);
+  if (error) {
+    Logger.error('Vision', 'getSignedPhotoUrl failed', { storagePath, error });
+    return null;
+  }
   return data?.signedUrl || null;
 }

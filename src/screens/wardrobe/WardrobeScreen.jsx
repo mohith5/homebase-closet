@@ -639,9 +639,10 @@ export default function WardrobeScreen() {
       const withUrls = await Promise.all((data || []).map(async item => {
         if (!item.photo_url) return item;
         if (item.photo_url.startsWith('http')) return item;
-        const { data: signed } = await supabase.storage
+        const { data: signed, error: signErr } = await supabase.storage
           .from('closet')
-          .createSignedUrl(item.photo_url, 60 * 60 * 24 * 7); // 7 days
+          .createSignedUrl(item.photo_url, 60 * 60 * 24 * 7);
+        if (signErr) Logger.warn('Wardrobe', 'Could not sign URL for item', { id: item.id, error: signErr });
         return { ...item, _storagePath: item.photo_url, photo_url: signed?.signedUrl || null };
       }));
       setWardrobe(withUrls);
@@ -712,16 +713,22 @@ export default function WardrobeScreen() {
             resizeMode="cover"
             onError={() => {
               // URL expired — re-sign on the fly
-              if (item._storagePath) {
+              const path = item._storagePath || (!item.photo_url?.startsWith('http') ? item.photo_url : null);
+              if (path) {
                 supabase.storage.from('closet')
-                  .createSignedUrl(item._storagePath, 60 * 60 * 24 * 7)
-                  .then(({ data }) => {
+                  .createSignedUrl(path, 60 * 60 * 24 * 7)
+                  .then(({ data, error }) => {
+                    if (error) {
+                      Logger.warn('Wardrobe', 'Re-sign failed', { id: item.id, error });
+                      return;
+                    }
                     if (data?.signedUrl) {
                       setWardrobe(prev => prev.map(w =>
-                        w.id === item.id ? { ...w, photo_url: data.signedUrl } : w
+                        w.id === item.id ? { ...w, photo_url: data.signedUrl, _storagePath: path } : w
                       ));
                     }
-                  });
+                  })
+                  .catch(e => Logger.error('Wardrobe', 'Re-sign threw', e));
               }
             }}
           />
