@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   ScrollView, ActivityIndicator, Image, Alert,
-  Animated, Dimensions,
+  Animated, Dimensions, Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -209,13 +210,37 @@ export function VacationPlannerExport({ profile, wardrobe }) {
 }
 function VacationPlanner({ profile, wardrobe }) {
   const [destination, setDestination] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDateObj, setStartDateObj] = useState(null);
+  const [endDateObj, setEndDateObj] = useState(null);
+  const [pickerTarget, setPickerTarget] = useState(null); // 'start' | 'end' | null
   const [activities, setActivities] = useState([]);
   const [planning, setPlanning] = useState(false);
   const [result, setResult] = useState(null);
   const [expandedDay, setExpandedDay] = useState(null);
   const { showToast } = useAppStore();
+
+  function formatDate(d) {
+    if (!d) return null;
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
+  function formatDateForClaude(d) {
+    if (!d) return '';
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
+  function onDateChange(event, selected) {
+    if (Platform.OS === 'android') setPickerTarget(null);
+    if (!selected) return;
+    if (pickerTarget === 'start') {
+      setStartDateObj(selected);
+      // Auto-advance to end date picker on iOS
+      if (Platform.OS === 'android') setPickerTarget('end');
+    } else if (pickerTarget === 'end') {
+      setEndDateObj(selected);
+      setPickerTarget(null);
+    }
+  }
 
   function toggleActivity(a) {
     setActivities(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a]);
@@ -223,7 +248,8 @@ function VacationPlanner({ profile, wardrobe }) {
 
   async function plan() {
     if (!destination.trim()) { showToast('Enter a destination'); return; }
-    if (!startDate.trim() || !endDate.trim()) { showToast('Enter travel dates'); return; }
+    if (!startDateObj || !endDateObj) { showToast('Select travel dates'); return; }
+    if (endDateObj < startDateObj) { showToast('End date must be after start date'); return; }
     setPlanning(true);
     setResult(null);
     try {
@@ -236,8 +262,8 @@ function VacationPlanner({ profile, wardrobe }) {
         profile,
         wardrobeItems: freshWardrobe,
         destination: destination.trim(),
-        startDate: startDate.trim(),
-        endDate: endDate.trim(),
+        startDate: formatDateForClaude(startDateObj),
+        endDate: formatDateForClaude(endDateObj),
         activities,
       });
       setResult(data);
@@ -247,6 +273,9 @@ function VacationPlanner({ profile, wardrobe }) {
     }
     setPlanning(false);
   }
+
+  const today = new Date();
+  const minEndDate = startDateObj || today;
 
   return (
     <ScrollView contentContainerStyle={{ padding: Spacing.md, paddingBottom: 120 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -272,15 +301,34 @@ function VacationPlanner({ profile, wardrobe }) {
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
           <Text style={vp.label}>From</Text>
-          <TextInput style={vp.input} value={startDate} onChangeText={setStartDate}
-            placeholder="e.g. May 10" placeholderTextColor={Colors.text3} />
+          <TouchableOpacity style={vp.input} onPress={() => setPickerTarget('start')} activeOpacity={0.7}>
+            <Text style={startDateObj ? { color: Colors.text } : { color: Colors.text3 }}>
+              {startDateObj ? formatDate(startDateObj) : 'Select date'}
+            </Text>
+          </TouchableOpacity>
         </View>
         <View style={{ flex: 1 }}>
           <Text style={vp.label}>To</Text>
-          <TextInput style={vp.input} value={endDate} onChangeText={setEndDate}
-            placeholder="e.g. May 17" placeholderTextColor={Colors.text3} />
+          <TouchableOpacity style={vp.input} onPress={() => setPickerTarget('end')} activeOpacity={0.7}>
+            <Text style={endDateObj ? { color: Colors.text } : { color: Colors.text3 }}>
+              {endDateObj ? formatDate(endDateObj) : 'Select date'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
+
+      {/* Native date picker — shows inline on iOS, modal on Android */}
+      {pickerTarget && (
+        <DateTimePicker
+          value={pickerTarget === 'end' ? (endDateObj || minEndDate) : (startDateObj || today)}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+          minimumDate={pickerTarget === 'end' ? minEndDate : today}
+          themeVariant="dark"
+          onChange={onDateChange}
+          style={{ marginBottom: 8 }}
+        />
+      )}
 
       <Text style={vp.label}>Activities</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -3, marginBottom: 4 }}>
