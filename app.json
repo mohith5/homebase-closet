@@ -47,7 +47,9 @@
       "expo-font",
       [
         "expo-camera",
-        { "cameraPermission": "HomeBase Closet uses your camera to scan barcodes and photograph clothing." }
+        {
+          "cameraPermission": "HomeBase Closet uses your camera to scan barcodes and photograph clothing."
+        }
       ],
       [
         "expo-image-picker",
@@ -55,7 +57,8 @@
           "photosPermission": "HomeBase Closet accesses your photos to add clothing items.",
           "cameraPermission": "HomeBase Closet uses your camera to photograph clothing."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {
