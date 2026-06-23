@@ -29,6 +29,12 @@ const CAT_SHORT = {
   Jewelry:'JWL', Watches:'WCH', Bags:'BAG', Hats:'HAT', Belts:'BLT',
   Sunglasses:'SNG', Activewear:'ACT', Swimwear:'SWM', Loungewear:'LNG',
 };
+// Emoji shown when a detected item has no cropped product photo
+const CATEGORY_ICONS = {
+  Tops:'👕', Bottoms:'👖', Dresses:'👗', Outerwear:'🧥', Shoes:'👟',
+  Jewelry:'💍', Watches:'⌚', Bags:'👜', Hats:'🧢', Belts:'🩹',
+  Sunglasses:'🕶️', Activewear:'🩳', Swimwear:'🩱', Loungewear:'🧦',
+};
 
 const W = Dimensions.get('window').width;
 const SIDEBAR_COLLAPSED = 52;
