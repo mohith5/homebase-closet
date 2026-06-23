@@ -4,8 +4,7 @@ import { supabase } from './supabase';
 import Logger from './logger';
 
 const BUCKET = 'closet';
-const MAX_CLAUDE_BYTES = 4 * 1024 * 1024; // 4MB — Claude max is 5MB, leave headroom
-const MAX_DIMENSION = 1280; // resize long edge to this for Claude
+const MAX_DIMENSION = 1280; // cap the long edge at this for Claude (well under the 8000px hard limit)
 
 export async function uploadPhoto(localUri, remotePath) {
   Logger.info('Storage', 'Uploading photo', { remotePath });
@@ -42,37 +41,47 @@ export async function getSignedUrl(path) {
 }
 
 /**
- * Read image as base64 — compresses if over Claude's 5MB limit.
- * iOS photos can be 8-12MB; this brings them under 4MB reliably.
+ * Read image as base64 for Claude's vision API.
+ *
+ * Claude rejects images whose width OR height exceeds 8000px, independent of
+ * file size — a modern phone photo can be small in bytes yet 9000+px on the
+ * long edge. So we ALWAYS normalize through ImageManipulator and constrain the
+ * LONG edge to MAX_DIMENSION (capping only width would let tall portrait photos
+ * stay over the pixel limit). This guarantees no dimension can trip the 8000px
+ * cap and also keeps the payload well under the 5MB byte limit.
  */
 export async function imageToBase64(uri) {
   try {
-    // Check raw size first
-    const info = await FileSystem.getInfoAsync(uri, { size: true });
-    const rawBytes = info.size || 0;
-    Logger.debug('Storage', `Raw image size: ${(rawBytes / 1024 / 1024).toFixed(1)}MB`);
+    // A no-op manipulate reads true pixel dimensions (post-orientation).
+    const probe = await ImageManipulator.manipulateAsync(uri, [], { compress: 1 });
+    const longEdge = Math.max(probe.width, probe.height);
+    Logger.debug('Storage', `Image dimensions: ${probe.width}x${probe.height}`);
 
-    if (rawBytes > MAX_CLAUDE_BYTES) {
-      Logger.info('Storage', `Compressing image from ${(rawBytes/1024/1024).toFixed(1)}MB`);
-      // Resize + compress to JPEG
-      const compressed = await ImageManipulator.manipulateAsync(
-        uri,
-        [{ resize: { width: MAX_DIMENSION } }],
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
-      );
-      const compressedInfo = await FileSystem.getInfoAsync(compressed.uri, { size: true });
-      Logger.info('Storage', `Compressed to ${(compressedInfo.size / 1024 / 1024).toFixed(1)}MB`);
-      return FileSystem.readAsStringAsync(compressed.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-    }
+    // Resize the long edge to MAX_DIMENSION. expo-image-manipulator preserves
+    // aspect ratio when only one of width/height is given, so pick the axis
+    // that is actually the longer one.
+    const resize = probe.width >= probe.height
+      ? { width: MAX_DIMENSION }
+      : { height: MAX_DIMENSION };
 
-    return FileSystem.readAsStringAsync(uri, {
+    // Only downscale — never upscale a small image.
+    const ops = longEdge > MAX_DIMENSION ? [{ resize }] : [];
+
+    const out = await ImageManipulator.manipulateAsync(
+      uri,
+      ops,
+      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+    );
+
+    const outInfo = await FileSystem.getInfoAsync(out.uri, { size: true });
+    Logger.info('Storage', `Normalized to ${out.width}x${out.height}, ${((outInfo.size || 0) / 1024 / 1024).toFixed(1)}MB`);
+
+    return FileSystem.readAsStringAsync(out.uri, {
       encoding: FileSystem.EncodingType.Base64,
     });
   } catch (e) {
     Logger.error('Storage', 'imageToBase64 failed, trying raw', e);
-    // Fallback: read raw even if large
+    // Fallback: read raw even if large (better to attempt than to hard-fail).
     return FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
   }
 }
